@@ -79,7 +79,6 @@ def handle_choose_option(tree: Dict, option_index: int) -> Dict:
     return {
         "type": "navigate",
         "payload": None,
-        "creates_nodes": False
-    }
+        "creates_nodes": False }
 
 

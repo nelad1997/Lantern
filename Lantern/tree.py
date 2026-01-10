@@ -3,8 +3,7 @@ import uuid
 
 def create_node(
     summary: str,
-    parent_id: Optional[str] = None,
-) -> Dict:
+    parent_id: Optional[str] = None, ) -> Dict:
     """
         Create a new tree node.
 
