@@ -51,7 +51,7 @@ def main():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔀 Diverge (Idea Expander)"):
+        if st.button(" Diverge (Idea Expander)"):
             with st.spinner("Thinking..."):
                 response = handle_event(
                     tree,
@@ -61,7 +61,7 @@ def main():
                 st.rerun()  # Refresh to show new children
 
     with col2:
-        if st.button("✨ Refine (Polisher)"):
+        if st.button(" Refine (Polisher)"):
             with st.spinner("Refining..."):
                 response = handle_event(
                     tree,
@@ -71,7 +71,7 @@ def main():
                 st.rerun()
 
     with col3:
-        if st.button("🧐 Critique (Devil's Advocate)"):
+        if st.button(" Critique (Devil's Advocate)"):
             with st.spinner("Critiquing..."):
                 response = handle_event(
                     tree,
