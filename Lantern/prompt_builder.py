@@ -1,4 +1,4 @@
-from controller import ActionType
+from definitions import ActionType
 
 
 def build_prompt(action: ActionType, focus: str) -> str:
@@ -19,7 +19,8 @@ def build_prompt(action: ActionType, focus: str) -> str:
         return (
             "You are an academic writing assistant.\n"
             "Given the following text, suggest several distinct directions "
-            "the argument could be developed further.\n\n"
+            "the argument could be developed further.\n"
+            "Output a plain list of options, separated by newlines, with no numbering.\n\n"
             f"Text:\n{focus}"
         )
 

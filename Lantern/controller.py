@@ -1,27 +1,14 @@
-from enum import Enum
+
+
 from typing import Dict, Optional, Any, List
+
+
+from definitions import ActionType, UserEventType
+
 
 from tree import add_child, set_current
 from prompt_builder import build_prompt
-from llm_client import call_llm #todo: we need to implement that
-
-
-class ActionType(Enum):
-    """
-    High-level actions the user can invoke on the current focus.
-    """
-    DIVERGE = "diverge"
-    REFINE = "refine"
-    CRITIQUE = "critique"
-
-
-class UserEventType(Enum):
-    """
-    Types of user events coming from the UI.
-    """
-    ACTION = "action"          # User invoked an agent (diverge / refine / critique)
-    CHOOSE_OPTION = "choose"   # User selected one of the generated options
-
+from llm_client import call_llm
 
 def decide_anchor(tree: Dict, user_text: Optional[str]) -> str:
     """
