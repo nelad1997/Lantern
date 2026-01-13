@@ -60,7 +60,7 @@ def call_llm(prompt: str) -> str:
 
         # Create the model - using the official name for your key
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.5-flash",
             safety_settings=safety_settings
         )
 
