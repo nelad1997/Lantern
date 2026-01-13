@@ -35,6 +35,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "- Output ONLY the final 3 options.\n"
             "- Format as a plain list separated by newlines.\n"
             "- No numbering, no labels, no intro text.\n\n"
+            "IMPORTANT: Respond in the same language as the input text."
         
             f"Text:\n{focus}"
         )
@@ -51,6 +52,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "4. Do NOT add new ideas or change the argument.\n\n"
         
             "Output ONLY the corrected text, with no introductory or concluding remarks.\n\n"
+            "IMPORTANT: Respond in the same language as the input text."
             f"Text:\n{focus}"
         )
 
@@ -69,6 +71,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "- Provide a bulleted list of 3 short, sharp critiques.\n"
             "- Be direct and tough but constructive.\n"
             "- Do not rewrite the text, just point out the flaws.\n\n"
+            "IMPORTANT: Respond in the same language as the input text."
         
             f"Text:\n{focus}"
         )

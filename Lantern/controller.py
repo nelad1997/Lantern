@@ -1,88 +1,31 @@
 
 
 from typing import Dict, Optional, Any, List
-
-
 from definitions import ActionType, UserEventType
-
-
 from tree import add_child, set_current
 from prompt_builder import build_prompt
 from llm_client import call_llm
 
+
 def decide_anchor(tree: Dict, user_text: Optional[str]) -> str:
-    """
-    Decide which node should serve as the anchor for the current action.
-
-    At this stage, the anchor is always the current node.
-    This function exists to allow future extension (e.g., paragraph-level anchors).
-
-    Args:
-        tree (Dict): The decision tree.
-        user_text (Optional[str]): Optional user-provided text override.
-
-    Returns:
-        str: The node ID to be used as the anchor.
-    """
     return tree["current"]
 
 
 def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
-    """
-    Build the textual focus that the LLM should operate on.
-
-    If the user provided explicit text, it takes precedence.
-    Otherwise, use the summary stored in the anchor node.
-
-    Args:
-        tree (Dict): The decision tree.
-        anchor_id (str): ID of the anchor node.
-        user_text (Optional[str]): Optional user-provided text.
-
-    Returns:
-        str: The focus text for the LLM.
-    """
     if user_text:
         return user_text.strip()
     return tree["nodes"][anchor_id]["summary"]
 
 
 def parse_llm_options(llm_output: str) -> List[str]:
-    """
-    Parse an LLM response into a list of distinct options.
-
-    This is intentionally simple for now and can be replaced
-    with more structured parsing later.
-
-    Args:
-        llm_output (str): Raw text returned by the LLM.
-
-    Returns:
-        List[str]: Parsed options.
-    """
     return [line.strip() for line in llm_output.split("\n") if line.strip()]
 
 
 def handle_event(
-    tree: Dict,
-    event_type: UserEventType,
-    event_context: Optional[Dict[str, Any]] = None
+        tree: Dict,
+        event_type: UserEventType,
+        event_context: Optional[Dict[str, Any]] = None
 ) -> Dict:
-    """
-    Main orchestration entry point for all user events.
-
-    This function interprets the user event, coordinates all
-    internal components (prompt building, LLM calls, tree updates),
-    and returns a final, UI-ready result.
-
-    Args:
-        tree (Dict): The decision tree.
-        event_type (UserEventType): Type of the user event.
-        event_context (Optional[Dict[str, Any]]): Additional data for the event.
-
-    Returns:
-        Dict: A UI-ready result describing what should be displayed next.
-    """
     event_context = event_context or {}
 
     if event_type == UserEventType.ACTION:
@@ -96,29 +39,55 @@ def handle_event(
 
 def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     """
-    Handle an ACTION event by orchestrating prompt creation,
-    LLM invocation, and optional tree expansion.
-
-    Args:
-        tree (Dict): The decision tree.
-        event_context (Dict[str, Any]): Must contain 'action' and may contain 'user_text'.
-
-    Returns:
-        Dict: UI-ready result (options list or critique text).
+    Handle an ACTION event with support for Context, Blocklist, and Language.
     """
     action = event_context.get("action")
     user_text = event_context.get("user_text")
+
+    # שליפת נתונים מה-App (רשימות הקשר וחסימות)
+    pinned_context = event_context.get("pinned_context", [])  # רשימת מחרוזות
+    banned_ids = event_context.get("banned_ideas", [])  # רשימת IDs
 
     if not isinstance(action, ActionType):
         raise ValueError("Invalid or missing ActionType")
 
     anchor_id = decide_anchor(tree, user_text)
-    focus = build_focus(tree, anchor_id, user_text)
+    base_focus = build_focus(tree, anchor_id, user_text)
 
-    prompt = build_prompt(action, focus)
+    # --- 1. בניית הוראות נוספות (Constraints) ---
+    constraints = []
+
+    # הוספת הקשר (Pinned Ideas)
+    if pinned_context:
+        context_str = "\n- ".join(pinned_context)
+        constraints.append(f"Consider the following pinned context/ideas:\n- {context_str}")
+
+    # הוספת חסימות (Banned Ideas)
+    # אנחנו צריכים להמיר את ה-IDs לטקסט כדי שה-LLM ידע ממה להימנע
+    if banned_ids:
+        banned_texts = []
+        for bid in banned_ids:
+            if bid in tree["nodes"]:
+                banned_texts.append(tree["nodes"][bid]["summary"])
+            # אם הרעיון נמחק מהעץ אבל קיים ב-banned, נתעלם ממנו או נטפל אחרת
+
+        if banned_texts:
+            banned_str = "\n- ".join(banned_texts)
+            constraints.append(f"Do NOT suggest the following ideas again:\n- {banned_str}")
+
+    # --- 2. הוראת שפה (Language Instruction) ---
+    constraints.append("IMPORTANT: Respond in the same language as the input text.")
+
+    # --- 3. הרכבת הפוקוס הסופי ---
+    # משרשרים את האילוצים לטקסט המקורי שנשלח ל-Builder
+    full_focus_text = base_focus
+    if constraints:
+        full_focus_text += "\n\n[SYSTEM INSTRUCTIONS]:\n" + "\n".join(constraints)
+
+    # יצירת הפרומפט וקריאה ל-LLM
+    prompt = build_prompt(action, full_focus_text)
     llm_output = call_llm(prompt)
 
-    # CRITIQUE does not create new branches
     if action == ActionType.CRITIQUE:
         return {
             "mode": "critique",
@@ -129,6 +98,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     options = parse_llm_options(llm_output)
 
     for option in options:
+        # אופציונלי: כאן אפשר היה לסנן שוב אם ה-LLM בטעות החזיר רעיון חסום
         add_child(tree, anchor_id, option)
 
     return {
@@ -138,16 +108,6 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
 
 
 def _handle_choose_option(tree: Dict, event_context: Dict[str, Any]) -> Dict:
-    """
-    Handle the user's selection of one of the previously generated options.
-
-    Args:
-        tree (Dict): The decision tree.
-        event_context (Dict[str, Any]): Must contain 'option_index'.
-
-    Returns:
-        Dict: UI-ready result reflecting the updated current focus.
-    """
     option_index = event_context.get("option_index")
 
     if option_index is None:

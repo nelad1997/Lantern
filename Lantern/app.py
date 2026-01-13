@@ -1,6 +1,7 @@
 import streamlit as st
 import base64
 import os
+# הערה: וודא שהקבצים controller.py, tree.py, definitions.py נמצאים באותה תיקייה
 from definitions import UserEventType, ActionType
 from tree import init_tree, get_current_node, get_children, navigate_to_node
 from controller import handle_event
@@ -19,7 +20,6 @@ def get_base64_of_bin_file(bin_file):
         return None
 
 
-# וודא שהקובץ logo.jpg נמצא בתיקייה (מומלץ להשתמש באייקון המנורה)
 LOGO_FILENAME = 'logo.jpg'
 logo_base64 = get_base64_of_bin_file(LOGO_FILENAME)
 
@@ -40,33 +40,55 @@ st.markdown(f"""
         color: #0072b1;
     }}
 
+    /* Delete Button Styling (Red) */
+    .delete-btn button {{
+        border-color: #ffcdd2;
+        color: #c62828;
+    }}
+    .delete-btn button:hover {{
+        background-color: #ffebee;
+        border-color: #c62828;
+    }}
+
     /* --- Sidebar Logo & Title Styling (VERTICAL LAYOUT) --- */
     .sidebar-header {{
         display: flex;
-        flex-direction: column; /* מסדר את הלוגו והטקסט אחד מעל השני */
-        align-items: center;    /* ממרכז אותם אופקית */
+        flex-direction: column;
+        align-items: center;
         justify-content: center;
         margin-bottom: 25px;
-        text-align: center;     /* מוודא שהטקסט ממורכז */
+        /* תיקון: הוספת מרווח עליון כדי שהלוגו לא ייחתך */
+        margin-top: 25px; 
+        text-align: center;
     }}
 
     .sidebar-logo {{
         height: auto;
         width: auto;
-        max-width: 120px;       /* גודל אופטימלי ללוגו כשהוא לבד בשורה */
+        max-width: 120px;
         max-height: 120px;
-        margin-bottom: 10px;    /* רווח בין הלוגו לכותרת */
+        margin-bottom: 10px;
         object-fit: contain;
     }}
 
     .sidebar-title {{
-        font-size: 3.5rem;      /* טקסט גדול מאוד */
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; /* פונט נקי וקריא */
-        font-weight: 800;       /* משקל כבד כדי שיהיה ברור */
+        font-size: 3.5rem;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-weight: 800;
         margin: 0;
         line-height: 1.1;
         color: #0f172a;
-        letter-spacing: -1px;   /* צמצום רווחים למראה מודרני */
+        letter-spacing: -1px;
+    }}
+
+    /* Pinned Context Box */
+    .pinned-box {{
+        background-color: #fff9c4;
+        padding: 10px;
+        border-radius: 8px;
+        border-left: 4px solid #fbc02d;
+        margin-bottom: 10px;
+        font-size: 0.9em;
     }}
 
     /* Status Pill Styling */
@@ -79,7 +101,6 @@ st.markdown(f"""
         margin-bottom: 25px;
     }}
 
-    /* Center the Status Pill container as well */
     .status-container {{
         text-align: center;
         width: 100%;
@@ -118,9 +139,15 @@ def get_ui_state(tree):
 
 
 def main():
+    # --- 1. Init State & Memory ---
     if "tree" not in st.session_state:
-        initial_text = ""
-        st.session_state.tree = init_tree(initial_text)
+        st.session_state.tree = init_tree("")
+
+    if "pinned_context" not in st.session_state:
+        st.session_state.pinned_context = []
+
+    if "banned_ideas" not in st.session_state:
+        st.session_state.banned_ideas = []
 
     tree = st.session_state.tree
     current_node = get_current_node(tree)
@@ -147,7 +174,7 @@ def main():
 
     # --- RIGHT COLUMN: Lantern Sidebar ---
     with col_lantern:
-        # --- LOGO & TITLE (Vertical Stack) ---
+        # --- LOGO & TITLE ---
         if logo_base64:
             st.markdown(f"""
                 <div class="sidebar-header">
@@ -163,7 +190,7 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
 
-        # Status Pill (Centered)
+        # Status Pill
         st.markdown(f"""
             <div class="status-container">
                 <div class="status-pill {mode_class}">
@@ -172,26 +199,55 @@ def main():
             </div>
         """, unsafe_allow_html=True)
 
+        # --- PINNED CONTEXT AREA ---
+        if st.session_state.pinned_context:
+            st.markdown("##### 📌 Pinned Ideas (Context)")
+            for i, context_item in enumerate(st.session_state.pinned_context):
+                st.markdown(f'<div class="pinned-box">{context_item}</div>', unsafe_allow_html=True)
+            st.divider()
+
+        # --- AGENT DECK ---
         st.write("**Agent Deck**")
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("🔀 Idea Expander"):
                 with st.spinner("Broadening perspectives..."):
-                    handle_event(tree, UserEventType.ACTION, {"action": ActionType.DIVERGE})
+                    # הכנת הקונטקסט לשליחה ל-Controller
+                    context_data = {
+                        "action": ActionType.DIVERGE,
+                        "pinned_context": st.session_state.pinned_context,
+                        "banned_ideas": st.session_state.banned_ideas
+                    }
+                    handle_event(tree, UserEventType.ACTION, context_data)
+
                     if "last_critique" in st.session_state: del st.session_state["last_critique"]
                     st.rerun()
 
         with col_btn2:
             if st.button("😈 Devil's Advocate"):
                 with st.spinner("Analyzing logical gaps..."):
-                    response = handle_event(tree, UserEventType.ACTION, {"action": ActionType.CRITIQUE})
+                    # הכנת הקונטקסט לשליחה ל-Controller
+                    context_data = {
+                        "action": ActionType.CRITIQUE,
+                        # גם בביקורת חשוב לדעת מה ההקשר ומה נחסם
+                        "pinned_context": st.session_state.pinned_context,
+                        "banned_ideas": st.session_state.banned_ideas
+                    }
+                    response = handle_event(tree, UserEventType.ACTION, context_data)
                     st.session_state["last_critique"] = response.get("text")
                     st.rerun()
 
         if st.button("✨ Polisher (Refine)"):
             with st.spinner("Polishing style and tone..."):
-                handle_event(tree, UserEventType.ACTION, {"action": ActionType.REFINE})
+                # הכנת הקונטקסט לשליחה ל-Controller
+                context_data = {
+                    "action": ActionType.REFINE,
+                    "pinned_context": st.session_state.pinned_context,
+                    "banned_ideas": st.session_state.banned_ideas
+                }
+                handle_event(tree, UserEventType.ACTION, context_data)
+
                 if "last_critique" in st.session_state: del st.session_state["last_critique"]
                 st.rerun()
 
@@ -207,18 +263,35 @@ def main():
                 st.rerun()
 
         children = get_children(tree)
-        if children and "last_critique" not in st.session_state:
+        # סינון ילדים חסומים
+        valid_children = [
+            c for c in children
+            if c['id'] not in st.session_state.banned_ideas
+        ]
+
+        if valid_children and "last_critique" not in st.session_state:
             st.markdown("---")
             st.subheader("Suggested Directions")
 
-            for idx, child in enumerate(children):
+            for idx, child in enumerate(valid_children):
                 with st.container(border=True):
-                    st.markdown(f"**Path {idx + 1}**")
+                    # st.markdown(f"**Path {idx + 1}**") # אפשר להוריד את הכותרת אם רוצים עיצוב נקי יותר
                     st.write(child["summary"])
 
-                    if st.button(f"Apply this direction", key=f"btn_{child['id']}"):
-                        handle_event(tree, UserEventType.CHOOSE_OPTION, {"option_index": idx})
-                        st.rerun()
+                    c1, c2 = st.columns(2)
+                    # כפתור שמירה להקשר
+                    with c1:
+                        if st.button(f"📌 Keep as Context", key=f"pin_{child['id']}"):
+                            st.session_state.pinned_context.append(child["summary"])
+                            st.rerun()
+
+                    # כפתור מחיקה/חסימה
+                    with c2:
+                        st.markdown('<div class="delete-btn">', unsafe_allow_html=True)
+                        if st.button(f"🚫 Dismiss", key=f"ban_{child['id']}"):
+                            st.session_state.banned_ideas.append(child['id'])
+                            st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
 
         if current_node["parent"]:
             st.markdown("---")
