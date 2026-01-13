@@ -260,3 +260,7 @@ def navigate_to_node(tree: Dict, node_id: str):
 
     tree["current"] = node_id
     tree["nodes"][node_id]["status"] = "current"
+
+
+    def stam():
+        print("hello")
