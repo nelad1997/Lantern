@@ -87,15 +87,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     # יצירת הפרומפט וקריאה ל-LLM
     prompt = build_prompt(action, full_focus_text)
     llm_output = call_llm(prompt)
+    options = parse_llm_options(llm_output)
 
     if action == ActionType.CRITIQUE:
         return {
             "mode": "critique",
-            "text": llm_output
-        }
+            "items": options } # מחזירים רשימה של הערות, לא טקסט אחד ארוך
 
     # DIVERGE / REFINE create new child nodes
-    options = parse_llm_options(llm_output)
+
 
     for option in options:
         # אופציונלי: כאן אפשר היה לסנן שוב אם ה-LLM בטעות החזיר רעיון חסום

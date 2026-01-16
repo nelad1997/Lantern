@@ -1,14 +1,13 @@
 import streamlit as st
 import base64
-import os
-import json
 
-
+# --- Imports ---
 from definitions import UserEventType, ActionType
-from tree import init_tree, get_current_node, get_children, navigate_to_node
+from tree import init_tree, get_current_node
 from controller import handle_event
-
+from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # -------------------------------------------------
@@ -16,8 +15,9 @@ load_dotenv()
 # -------------------------------------------------
 st.set_page_config(page_title="Lantern", layout="wide")
 
+
 # -------------------------------------------------
-# Image Handling
+# Image / Assets
 # -------------------------------------------------
 def get_base64_of_bin_file(bin_file):
     try:
@@ -26,124 +26,123 @@ def get_base64_of_bin_file(bin_file):
     except FileNotFoundError:
         return None
 
+
 LOGO_FILENAME = "logo.jpg"
 logo_base64 = get_base64_of_bin_file(LOGO_FILENAME)
 
 # -------------------------------------------------
-# Styling
+# Styling (CSS)
 # -------------------------------------------------
 st.markdown("""
 <style>
-
-/* ---------- Global Buttons ---------- */
+/* Global Button Styling */
 .stButton button {
-    width: 100%;
-    height: 44px;
-    border-radius: 10px;
+    border-radius: 8px;
     font-weight: 500;
-    border: 1px solid #e0e0e0;
     transition: all 0.2s;
 }
-.stButton button:hover {
-    border-color: #2563eb;
-    color: #2563eb;
-}
 
-/* ---------- Sidebar Header ---------- */
+/* Sidebar Header */
 .sidebar-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin: 16px 0 12px 0;
+    margin-bottom: 20px;
+}
 .sidebar-logo {
-    max-width: 160px;                 /* הקטנה משמעותית */
-    margin-bottom: 1px;
-    opacity: 0.8;                   /* ריכוך כללי */
-filter: drop-shadow(0 0 1px rgba(0,0,0,0.15));
+    max-width: 140px;
+    opacity: 0.9;
 }
 .sidebar-title {
-    font-size: 2.6rem;
+    font-size: 2rem;
     font-weight: 800;
-    color: #0f172a;
+    color: #1e293b;
 }
 
-/* ---------- Status ---------- */
-.status-pill {
-    display: inline-block;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin-bottom: 18px;
-}
-.status-explore { background-color: #e0f2fe; color: #075985; }
-.status-reflect { background-color: #fef3c7; color: #92400e; }
-.status-ready { background-color: #f5f5f5; color: #525252; }
-
-/* ---------- Agent Deck ---------- */
-.agent-deck {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 14px;
-}
-
-/* ---------- Pinned Context ---------- */
+/* Pinned Context Styling */
 .pinned-box {
     background-color: #fefce8;
-    padding: 10px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 6px;
     border-left: 4px solid #eab308;
     margin-bottom: 8px;
-    font-size: 0.9em;
+    font-size: 0.85rem;
+    color: #422006;
 }
 
-/* ---------- Suggestions ---------- */
+/* Suggestion Cards */
 .suggestion-card {
-    height: 190px;
+    background-color: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.suggestion-meta {
     display: flex;
-    flex-direction: column;
     justify-content: space-between;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-.suggestion-actions {
-    display: flex;
-    gap: 8px;
+.suggestion-text {
+    font-size: 0.95rem;
+    color: #334155;
+    line-height: 1.5;
+    margin-bottom: 12px;
 }
 
-.delete-btn button {
-    border-color: #fecaca;
-    color: #b91c1c;
+/* Status Pills */
+.status-pill {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
 }
-.delete-btn button:hover {
-    background-color: #fee2e2;
-    border-color: #b91c1c;
-}
+.status-explore { background-color: #e0f2fe; color: #0369a1; }
+.status-reflect { background-color: #fef3c7; color: #92400e; }
+.status-ready { background-color: #f0fdf4; color: #166534; }
 
 #MainMenu, footer { visibility: hidden; }
-
 </style>
 """, unsafe_allow_html=True)
+
 
 # -------------------------------------------------
 # Helpers
 # -------------------------------------------------
 def update_node_text():
+    """Update the current node's text from the editor."""
     tree = st.session_state.tree
     current_id = tree["current"]
     st.session_state.tree["nodes"][current_id]["summary"] = st.session_state[f"editor_{current_id}"]
 
+
 def get_ui_state(tree):
+    """Determine UI state/label based on tree status."""
     if "last_perspective" in st.session_state:
-        return "Considering an Alternative Perspective", "status-reflect"
-    if get_children(tree):
-        return "Exploring Directions", "status-explore"
-    return "Drafting Mode", "status-ready"
+        return "Reflecting", "status-reflect"
+
+    current_node = get_current_node(tree)
+    # Check if there are un-banned children
+    has_valid_children = any(cid not in st.session_state.banned_ideas for cid in current_node["children"])
+
+    if has_valid_children:
+        return "Exploring", "status-explore"
+    return "Drafting", "status-ready"
+
 
 # -------------------------------------------------
 # Main App
 # -------------------------------------------------
 def main():
+    # Initialize State
     if "tree" not in st.session_state:
         st.session_state.tree = init_tree("")
     if "pinned_context" not in st.session_state:
@@ -155,125 +154,191 @@ def main():
     current_node = get_current_node(tree)
     mode_label, mode_class = get_ui_state(tree)
 
+    # Layout Columns
     col_editor, col_lantern = st.columns([2, 1], gap="large")
 
-    # -------- Editor --------
+    # ==========================================
+    # LEFT COLUMN: EDITOR
+    # ==========================================
     with col_editor:
-        st.subheader("What are we working on today?")
-        # -------- Agent Actions (moved here) --------
+        st.subheader("Editor")
+
+        # --- Action Buttons ---
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
 
-
         with c1:
-            if st.button("🌱 Idea Expander"):
+            if st.button("🌱 Expand"):
                 handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.DIVERGE,
                     "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas
+                    "banned_ideas": st.session_state.banned_ideas,
+                    "user_text": current_node["summary"]
                 })
-                st.session_state.pop("last_perspective", None)
+                # מנקים את הביקורות הישנות אם עברנו פעולה
+                st.session_state.pop("current_critiques", None)
                 st.rerun()
 
         with c2:
-            if st.button("🔍 Counter Perspective"):
+            if st.button("⚖️ Critique"):
                 response = handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.CRITIQUE,
                     "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas
+                    "banned_ideas": st.session_state.banned_ideas,
+                    "user_text": current_node["summary"]
                 })
-                st.session_state["last_perspective"] = response.get("text")
+
+                # שומרים את הרשימה (items) במקום סתם טקסט
+                st.session_state["current_critiques"] = response.get("items", [])
                 st.rerun()
 
         with c3:
-            if st.button("✨ Refine Draft"):
+            if st.button("✨ Refine"):
                 handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.REFINE,
                     "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas
+                    "banned_ideas": st.session_state.banned_ideas,
+                    "user_text": current_node["summary"]
                 })
-                st.session_state.pop("last_perspective", None)
+                st.session_state.pop("current_critiques", None)
                 st.rerun()
+        st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
-        st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+        # --- Main Text Editor ---
         editor_key = f"editor_{current_node['id']}"
         st.text_area(
-            "Main Editor",
+            "Content",
             value=current_node["summary"],
-            height=700,
+            height=600,
             label_visibility="collapsed",
             key=editor_key,
-            on_change=update_node_text
+            on_change=update_node_text,
+            placeholder="Start typing your ideas here..."
         )
 
-    # -------- Lantern --------
+    # ==========================================
+    # RIGHT COLUMN: LANTERN (SIDEBAR)
+    # ==========================================
     with col_lantern:
+
+        # --- 1. Logo & Header ---
         if logo_base64:
             st.markdown(f"""
             <div class="sidebar-header">
                 <img src="data:image/jpeg;base64,{logo_base64}" class="sidebar-logo">
-                <div class="sidebar-title">Lantern</div>
             </div>
             """, unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="sidebar-header"><div class="sidebar-title">Lantern</div></div>',
+                        unsafe_allow_html=True)
 
-        st.markdown(f"""
-        <div style="text-align:center">
-            <div class="status-pill {mode_class}">🟢 {mode_label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # --- 2. THE REASONING MAP ---
+        render_sidebar_map(tree)
 
+        st.markdown("---")
+
+        # --- 3. Status & Pinned Context ---
+        st.markdown(f'<div class="status-pill {mode_class}">State: {mode_label}</div>', unsafe_allow_html=True)
+
+        # הצגת ההקשרים השמורים (Pinned)
         if st.session_state.pinned_context:
-            st.markdown("##### 📌 Pinned Context")
-            for item in st.session_state.pinned_context:
+            st.markdown("<br><b>📌 Pinned Context</b>", unsafe_allow_html=True)
+            for i, item in enumerate(st.session_state.pinned_context):
                 st.markdown(f'<div class="pinned-box">{item}</div>', unsafe_allow_html=True)
+
+            # תיקון: הסרנו את size="small"
+            if st.button("Clear Context"):
+                st.session_state.pinned_context = []
+                st.rerun()
             st.divider()
 
+        # --- 4. CRITIQUE / PERSPECTIVE RESULT ---
+        if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
+            st.subheader("💡 Critical Perspectives")
 
-        # -------- Perspective --------
-        if "last_perspective" in st.session_state:
-            st.markdown("---")
-            st.subheader("Alternative Perspective")
-            with st.chat_message("assistant", avatar="🔍"):
-                st.write(st.session_state["last_perspective"])
-
-            if st.button("Dismiss & Continue Writing"):
-                del st.session_state["last_perspective"]
+            # כפתור לסגירת כל הביקורות בבת אחת
+            if st.button("Dismiss All Critiques", key="dismiss_all_crit"):
+                del st.session_state["current_critiques"]
                 st.rerun()
 
-        # -------- Suggestions --------
-        children = [c for c in get_children(tree) if c["id"] not in st.session_state.banned_ideas]
+            # לולאה שיוצרת כרטיס לכל הערה בנפרד
+            for i, item in enumerate(st.session_state["current_critiques"]):
 
-        if children and "last_perspective" not in st.session_state:
-            st.markdown("---")
-            st.subheader("Suggested Directions")
-
-            for child in children:
                 with st.container(border=True):
-                    st.markdown('<div class="suggestion-card">', unsafe_allow_html=True)
-                    st.write(child["summary"])
+                    # הצגת הטקסט של הביקורת
+                    st.markdown(f"**Critique #{i + 1}**")
+                    st.write(item)
 
-                    st.markdown('<div class="suggestion-actions">', unsafe_allow_html=True)
-                    c1, c2 = st.columns(2)
+                    c_pin, c_prune = st.columns([1, 1])
 
-                    with c1:
-                        if st.button("📌 Keep as Context", key=f"pin_{child['id']}"):
-                            st.session_state.pinned_context.append(child["summary"])
+                    # --- כפתור PIN ---
+                    with c_pin:
+                        if st.button("📌 Pin & Fix", key=f"crit_pin_{i}",
+                                     help="Add to context to fix in next draft"):
+                            st.session_state.pinned_context.append(f"Fix: {item}")
+                            st.session_state["current_critiques"].pop(i)
+                            st.toast("Critique pinned to context!")
                             st.rerun()
 
-                    with c2:
-                        st.markdown('<div class="delete-btn">', unsafe_allow_html=True)
-                        if st.button("🚫 Dismiss", key=f"ban_{child['id']}"):
-                            st.session_state.banned_ideas.append(child["id"])
+                    # --- כפתור PRUNE ---
+                    with c_prune:
+                        if st.button("✂️ Ignore", key=f"crit_prune_{i}", help="Dismiss this critique"):
+                            st.session_state["current_critiques"].pop(i)
                             st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
 
-                    st.markdown('</div></div>', unsafe_allow_html=True)
-
-        if current_node["parent"]:
-            st.markdown("---")
-            if st.button("↩️ Back to Previous Version"):
-                navigate_to_node(tree, current_node["parent"])
-                st.session_state.pop("last_perspective", None)
+            # אם הרשימה התרוקנה
+            if not st.session_state["current_critiques"]:
+                del st.session_state["current_critiques"]
                 st.rerun()
+
+            st.divider()
+
+        # --- 5. SUGGESTED PATHS (Children) ---
+        all_child_ids = current_node["children"]
+        visible_children = [cid for cid in all_child_ids if cid not in st.session_state.banned_ideas]
+
+        if visible_children:
+            st.subheader("Suggested Paths")
+
+            for real_index, child_id in enumerate(all_child_ids):
+                if child_id in st.session_state.banned_ideas:
+                    continue
+
+                child_node = tree["nodes"][child_id]
+                created_at = child_node.get("created_at", "")
+                node_type_icon = "🤖" if "ai" in child_node.get("type", "") else "📄"
+
+                # כרטיס הצעה
+                st.markdown(f"""
+                <div class="suggestion-card">
+                    <div class="suggestion-meta">
+                        <span>{node_type_icon} {child_node.get('type', 'Idea')}</span>
+                        <span>{created_at}</span>
+                    </div>
+                    <div class="suggestion-text">{child_node['summary']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # --- כפתורי הפעולה החדשים ---
+                c_sel, c_pin, c_prune = st.columns([1.5, 1, 1])
+
+                with c_sel:
+                    # בחירה - הופך את זה לטקסט הראשי
+                    if st.button("✅ Select", key=f"sel_{child_id}"):
+                        handle_event(tree, UserEventType.CHOOSE_OPTION, {"option_index": real_index})
+                        st.rerun()
+
+                with c_pin:
+                    # נעיצה - שומר כהקשר אבל לא עובר לשם
+                    if st.button("📌 Pin", key=f"pin_{child_id}", help="Save as context"):
+                        st.session_state.pinned_context.append(child_node["summary"])
+                        st.toast("Idea Pinned to Context!", icon="📌")
+                        st.rerun()
+
+                with c_prune:
+                    # גיזום/פסילה - מסתיר את הרעיון ומוסיף לרשימה שחורה
+                    if st.button("✂️ Prune", key=f"prune_{child_id}", help="Discard and Ban"):
+                        st.session_state.banned_ideas.append(child_id)
+                        st.rerun()
 
 if __name__ == "__main__":
     main()
