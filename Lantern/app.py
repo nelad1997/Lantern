@@ -1,5 +1,8 @@
 import streamlit as st
 import base64
+from streamlit_quill import st_quill
+import re
+
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
@@ -50,9 +53,16 @@ st.markdown("""
     margin-bottom: 20px;
 }
 .sidebar-logo {
-    max-width: 140px;
-    opacity: 0.9;
+    max-width: 110px;
+    width: 110px;
+    height: auto;
+    opacity: 0.65;
+    margin-bottom: 6px;
+    filter: grayscale(20%);
 }
+
+
+
 .sidebar-title {
     font-size: 2rem;
     font-weight: 800;
@@ -109,6 +119,24 @@ st.markdown("""
 .status-reflect { background-color: #fef3c7; color: #92400e; }
 .status-ready { background-color: #f0fdf4; color: #166534; }
 
+/* ---------- Action Bar ---------- */
+.action-bar {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px 12px 14px 12px;
+    margin-bottom: 10px;
+    background-color: #f9fafb;
+}
+
+.action-bar-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    display: block;
+    margin-bottom: 6px;
+}
+
+
 #MainMenu, footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -162,12 +190,23 @@ def main():
     # ==========================================
     with col_editor:
         st.subheader("Editor")
+        st.markdown(
+            """
+            <div class="action-bar">
+                <span class="action-bar-title">AI Reasoning Actions</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         # --- Action Buttons ---
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
 
         with c1:
-            if st.button("🌱 Expand"):
+            if st.button(
+                    "🌱 Expand",
+                    help="Generate multiple alternative directions to explore this idea before committing."
+            ):
                 handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.DIVERGE,
                     "pinned_context": st.session_state.pinned_context,
@@ -179,7 +218,10 @@ def main():
                 st.rerun()
 
         with c2:
-            if st.button("⚖️ Critique"):
+            if st.button(
+                    "⚖️ Critique",
+                    help="Surface weaknesses, blind spots, and counter-arguments in the current direction."
+            ):
                 response = handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.CRITIQUE,
                     "pinned_context": st.session_state.pinned_context,
@@ -192,7 +234,10 @@ def main():
                 st.rerun()
 
         with c3:
-            if st.button("✨ Refine"):
+            if st.button(
+                    "✨ Refine",
+                    help="Improve clarity and structure without changing the underlying idea."
+            ):
                 handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.REFINE,
                     "pinned_context": st.session_state.pinned_context,
@@ -205,15 +250,28 @@ def main():
 
         # --- Main Text Editor ---
         editor_key = f"editor_{current_node['id']}"
-        st.text_area(
-            "Content",
-            value=current_node["summary"],
-            height=600,
-            label_visibility="collapsed",
-            key=editor_key,
-            on_change=update_node_text,
-            placeholder="Start typing your ideas here..."
+        st.caption("✏️ Editing current reasoning node")
+
+        html_content = st_quill(
+            value=current_node.get("metadata", {}).get("html", ""),
+            placeholder="Start writing your ideas here...",
+            html=True,
+            toolbar=[
+                ["bold", "italic", "underline"],
+                [{"header": [1, 2, 3, False]}],
+                [{"list": "ordered"}, {"list": "bullet"}],
+                ["link", "blockquote"],
+            ]
+            ,
+            key=f"quill_{current_node['id']}",
         )
+        if html_content is not None:
+            # שמירת HTML ל־UI
+            current_node.setdefault("metadata", {})["html"] = html_content
+
+            # חילוץ טקסט נקי ל־LLM
+            plain_text = re.sub("<[^<]+?>", "", html_content)
+            current_node["summary"] = plain_text.strip()
 
     # ==========================================
     # RIGHT COLUMN: LANTERN (SIDEBAR)
@@ -272,11 +330,16 @@ def main():
 
                     # --- כפתור PIN ---
                     with c_pin:
-                        if st.button("📌 Pin & Fix", key=f"crit_pin_{i}",
-                                     help="Add to context to fix in next draft"):
-                            st.session_state.pinned_context.append(f"Fix: {item}")
-                            st.session_state["current_critiques"].pop(i)
-                            st.toast("Critique pinned to context!")
+                        if st.button("📌 Pin", key=f"crit_pin_{i}", help="Save as context"):
+                            # שמירת מצב העורך לפני rerun
+                            current_node.setdefault("metadata", {})["html"] = (
+                                current_node.get("metadata", {}).get("html", "")
+                            )
+
+                            # שמירת הביקורת עצמה כהקשר
+                            st.session_state.pinned_context.append(f"Critique: {item}")
+
+                            st.toast("Critique pinned to context!", icon="📌")
                             st.rerun()
 
                     # --- כפתור PRUNE ---
@@ -328,8 +391,12 @@ def main():
                         st.rerun()
 
                 with c_pin:
-                    # נעיצה - שומר כהקשר אבל לא עובר לשם
                     if st.button("📌 Pin", key=f"pin_{child_id}", help="Save as context"):
+                        # שמירת מצב העורך לפני rerun
+                        current_node.setdefault("metadata", {})["html"] = (
+                            current_node.get("metadata", {}).get("html", "")
+                        )
+
                         st.session_state.pinned_context.append(child_node["summary"])
                         st.toast("Idea Pinned to Context!", icon="📌")
                         st.rerun()

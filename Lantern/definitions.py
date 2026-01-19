@@ -7,6 +7,7 @@ class ActionType(Enum):
     DIVERGE = "diverge"
     REFINE = "refine"
     CRITIQUE = "critique"
+    CLASSIFY = "classify"
 
 
 class UserEventType(Enum):

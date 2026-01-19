@@ -1,5 +1,3 @@
-
-
 from typing import Dict, Optional, Any, List
 from definitions import ActionType, UserEventType
 from tree import add_child, set_current
@@ -18,7 +16,8 @@ def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
 
 
 def parse_llm_options(llm_output: str) -> List[str]:
-    return [line.strip() for line in llm_output.split("\n") if line.strip()]
+    blocks = llm_output.split("\n\n")
+    return [block.strip() for block in blocks if block.strip()]
 
 
 def handle_event(
@@ -54,35 +53,79 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     anchor_id = decide_anchor(tree, user_text)
     base_focus = build_focus(tree, anchor_id, user_text)
 
-    # --- 1. בניית הוראות נוספות (Constraints) ---
+    # -------------------------------------------------
+    # 1. בניית הוראות נוספות (Constraints)
+    # -------------------------------------------------
     constraints = []
 
     # הוספת הקשר (Pinned Ideas)
     if pinned_context:
         context_str = "\n- ".join(pinned_context)
-        constraints.append(f"Consider the following pinned context/ideas:\n- {context_str}")
+        constraints.append(
+            f"Consider the following pinned context/ideas:\n- {context_str}"
+        )
 
     # הוספת חסימות (Banned Ideas)
-    # אנחנו צריכים להמיר את ה-IDs לטקסט כדי שה-LLM ידע ממה להימנע
     if banned_ids:
         banned_texts = []
         for bid in banned_ids:
             if bid in tree["nodes"]:
                 banned_texts.append(tree["nodes"][bid]["summary"])
-            # אם הרעיון נמחק מהעץ אבל קיים ב-banned, נתעלם ממנו או נטפל אחרת
 
         if banned_texts:
             banned_str = "\n- ".join(banned_texts)
-            constraints.append(f"Do NOT suggest the following ideas again:\n- {banned_str}")
+            constraints.append(
+                f"Do NOT suggest the following ideas again:\n- {banned_str}"
+            )
 
-    # --- 2. הוראת שפה (Language Instruction) ---
-    constraints.append("IMPORTANT: Respond in the same language as the input text.")
+    # -------------------------------------------------
+    # Academic Writing Principles — PREPARATION HOOK
+    # -------------------------------------------------
+    def load_academic_principles(
+            path="academic_writing_principles.md"
+    ) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            return ""
 
-    # --- 3. הרכבת הפוקוס הסופי ---
-    # משרשרים את האילוצים לטקסט המקורי שנשלח ל-Builder
+    # TODO (Static Context Injection):
+    # Load and inject a fixed academic writing principles document here.
+    #
+    # Example future file:
+    #   "academic_writing_principles.md"
+    #
+    # Intended behavior:
+    # - The document should be appended to `constraints` as SYSTEM INSTRUCTIONS.
+    # - Apply the principles ONLY to analytical / thematic sections.
+    # - Do NOT apply them to introduction / background sections.
+    #
+    # Example future implementation:
+    #
+    # academic_principles_text = load_academic_principles()
+    # if academic_principles_text:
+    #     constraints.append(
+    #         "Academic Writing Principles:\n"
+    #         + academic_principles_text
+    #     )
+
+    # -------------------------------------------------
+    # 2. הוראת שפה (Language Instruction)
+    # -------------------------------------------------
+    constraints.append(
+        "IMPORTANT: Respond in the same language as the input text."
+    )
+
+    # -------------------------------------------------
+    # 3. הרכבת הפוקוס הסופי
+    # -------------------------------------------------
     full_focus_text = base_focus
     if constraints:
-        full_focus_text += "\n\n[SYSTEM INSTRUCTIONS]:\n" + "\n".join(constraints)
+        full_focus_text += (
+            "\n\n[SYSTEM INSTRUCTIONS]:\n"
+            + "\n".join(constraints)
+        )
 
     # יצירת הפרומפט וקריאה ל-LLM
     prompt = build_prompt(action, full_focus_text)
@@ -92,13 +135,11 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     if action == ActionType.CRITIQUE:
         return {
             "mode": "critique",
-            "items": options } # מחזירים רשימה של הערות, לא טקסט אחד ארוך
+            "items": options  # מחזירים רשימה של הערות, לא טקסט אחד ארוך
+        }
 
     # DIVERGE / REFINE create new child nodes
-
-
     for option in options:
-        # אופציונלי: כאן אפשר היה לסנן שוב אם ה-LLM בטעות החזיר רעיון חסום
         add_child(tree, anchor_id, option)
 
     return {
