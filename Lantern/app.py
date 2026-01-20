@@ -190,6 +190,10 @@ def main():
     # ==========================================
     with col_editor:
         st.subheader("Editor")
+
+        # -------------------------------------------------
+        # Action Bar
+        # -------------------------------------------------
         st.markdown(
             """
             <div class="action-bar">
@@ -199,57 +203,63 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # --- Action Buttons ---
+        # -------------------------------------------------
+        # Ensure focused_text always exists
+        # -------------------------------------------------
+        st.session_state.setdefault(
+            "focused_text",
+            current_node.get("summary", "")
+        )
+
+        # -------------------------------------------------
+        # Action Buttons
+        # -------------------------------------------------
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
 
         with c1:
-            if st.button(
-                    "🌱 Expand",
-                    help="Generate multiple alternative directions to explore this idea before committing."
-            ):
+            if st.button("🌱 Expand"):
                 handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.DIVERGE,
                     "pinned_context": st.session_state.pinned_context,
                     "banned_ideas": st.session_state.banned_ideas,
-                    "user_text": current_node["summary"]
+                    "user_text": st.session_state["focused_text"],
                 })
-                # מנקים את הביקורות הישנות אם עברנו פעולה
                 st.session_state.pop("current_critiques", None)
                 st.rerun()
 
         with c2:
-            if st.button(
-                    "⚖️ Critique",
-                    help="Surface weaknesses, blind spots, and counter-arguments in the current direction."
-            ):
+            if st.button("⚖️ Critique"):
                 response = handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.CRITIQUE,
                     "pinned_context": st.session_state.pinned_context,
                     "banned_ideas": st.session_state.banned_ideas,
-                    "user_text": current_node["summary"]
+                    "user_text": st.session_state["focused_text"],
                 })
-
-                # שומרים את הרשימה (items) במקום סתם טקסט
                 st.session_state["current_critiques"] = response.get("items", [])
                 st.rerun()
 
         with c3:
-            if st.button(
-                    "✨ Refine",
-                    help="Improve clarity and structure without changing the underlying idea."
-            ):
-                handle_event(tree, UserEventType.ACTION, {
+            if st.button("✨ Refine"):
+                response = handle_event(tree, UserEventType.ACTION, {
                     "action": ActionType.REFINE,
                     "pinned_context": st.session_state.pinned_context,
                     "banned_ideas": st.session_state.banned_ideas,
-                    "user_text": current_node["summary"]
+                    "user_text": st.session_state["focused_text"],
                 })
+
+                # אם חזר Refine Diff – שומרים אותו להצגה
+                if response and response.get("mode") == "refine":
+                    st.session_state["last_refine_diff"] = response.get("diff_html")
+
+                # ניקוי מצבים שלא רלוונטיים
                 st.session_state.pop("current_critiques", None)
                 st.rerun()
+
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
-        # --- Main Text Editor ---
-        editor_key = f"editor_{current_node['id']}"
+        # -------------------------------------------------
+        # Main Text Editor
+        # -------------------------------------------------
         st.caption("✏️ Editing current reasoning node")
 
         html_content = st_quill(
@@ -261,17 +271,79 @@ def main():
                 [{"header": [1, 2, 3, False]}],
                 [{"list": "ordered"}, {"list": "bullet"}],
                 ["link", "blockquote"],
-            ]
-            ,
+            ],
             key=f"quill_{current_node['id']}",
         )
+
+        # -------------------------------------------------
+        # Extract blocks (headers vs paragraphs)
+        # -------------------------------------------------
+        blocks_data = []
+
         if html_content is not None:
-            # שמירת HTML ל־UI
             current_node.setdefault("metadata", {})["html"] = html_content
 
-            # חילוץ טקסט נקי ל־LLM
             plain_text = re.sub("<[^<]+?>", "", html_content)
             current_node["summary"] = plain_text.strip()
+
+            blocks = re.findall(
+                r"<(p|h[1-6])[^>]*>(.*?)</\1>",
+                html_content,
+                re.DOTALL
+            )
+
+            for tag, inner_html in blocks:
+                text = re.sub("<[^<]+?>", "", inner_html).strip()
+                if not text:
+                    continue
+
+                is_header = tag.startswith("h") or len(text.splitlines()) == 1
+
+                blocks_data.append({
+                    "text": text,
+                    "type": "header" if is_header else "paragraph"
+                })
+
+        # -------------------------------------------------
+        # Focus Selection (number-based, no radio)
+        # -------------------------------------------------
+        focus_mode = st.selectbox(
+            "🧠 What should Lantern focus on?",
+            ["Whole document", "Specific block"],
+            key="focus_mode",
+        )
+
+        if focus_mode == "Specific block" and blocks_data:
+            block_idx = st.number_input(
+                "Block number",
+                min_value=1,
+                max_value=len(blocks_data),
+                step=1,
+            )
+
+            selected_block = blocks_data[block_idx - 1]
+            focused_text = selected_block["text"]
+
+            st.caption(f"Type: {selected_block['type'].capitalize()}")
+        else:
+            focused_text = current_node["summary"]
+
+        # -------------------------------------------------
+        # Single source of truth
+        # -------------------------------------------------
+        st.session_state["focused_text"] = focused_text
+
+        # -------------------------------------------------
+        # AI Focus Preview
+        # -------------------------------------------------
+        with st.expander("🔍 AI Focus Preview", expanded=True):
+            st.caption("This is exactly what will be sent to Lantern when you use the action buttons.")
+            st.text_area(
+                "",
+                value=st.session_state["focused_text"],
+                height=160,
+                disabled=True,
+            )
 
     # ==========================================
     # RIGHT COLUMN: LANTERN (SIDEBAR)
@@ -351,6 +423,32 @@ def main():
             # אם הרשימה התרוקנה
             if not st.session_state["current_critiques"]:
                 del st.session_state["current_critiques"]
+                st.rerun()
+
+            st.divider()
+
+        # --- Refine Diff (Track Changes) ---
+        if "last_refine_diff" in st.session_state:
+            st.subheader("✨ Refined Changes")
+
+            st.markdown(
+                f"""
+                <div style="
+                    background-color: #f8fafc;
+                    padding: 15px;
+                    border-radius: 8px;
+                    border: 1px solid #e2e8f0;
+                    line-height: 1.6;
+                    font-size: 0.95rem;
+                ">
+                    {st.session_state["last_refine_diff"]}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if st.button("Dismiss Refinement"):
+                del st.session_state["last_refine_diff"]
                 st.rerun()
 
             st.divider()
