@@ -347,7 +347,36 @@ def main():
                     with c_pru:
                         if st.button("✂️ Remove", key=f"pr_{cid}", help="Discard this idea"):
                             st.session_state.banned_ideas.append(cid)
-                            st.rerun()#chan
+                            st.rerun()
+        # -------------------------------------------------
+        # Execute pending Lantern action (non-blocking UX)
+        # -------------------------------------------------
+        if st.session_state.pending_action and st.session_state.is_thinking:
+            payload = st.session_state.pending_action
+
+            response = handle_event(
+                st.session_state.tree,
+                UserEventType.ACTION,
+                {
+                    "action": payload["action"],
+                    "pinned_context": st.session_state.pinned_context,
+                    "banned_ideas": st.session_state.banned_ideas,
+                    "user_text": payload["user_text"],
+                }
+            )
+
+            if payload["action"] == ActionType.CRITIQUE:
+                st.session_state["current_critiques"] = response.get("items", [])
+
+            elif payload["action"] == ActionType.REFINE:
+                st.session_state["last_refine_diff"] = response.get("diff_html")
+
+            # DIVERGE → הילדים כבר נוספו לעץ ע"י controller
+
+            st.session_state.pending_action = None
+            st.session_state.is_thinking = False
+            st.rerun()
+
 
 if __name__ == "__main__":
     main()
