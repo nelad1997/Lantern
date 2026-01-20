@@ -48,9 +48,28 @@ st.markdown("""
 .status-explore { background-color: #e0f2fe; color: #0369a1; }
 .status-reflect { background-color: #fef3c7; color: #92400e; }
 .status-ready { background-color: #f0fdf4; color: #166534; }
-.action-bar { border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px 12px 14px 12px; margin-bottom: 10px; background-color: #f9fafb; }
-.action-bar-title { font-size: 0.85rem; font-weight: 600; color: #475569; display: block; margin-bottom: 6px; }
-#MainMenu, footer { visibility: hidden; }
+.action-bar {
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 14px 16px 16px 16px;
+    margin-bottom: 16px;
+    background-color: #f9fafb;
+}
+
+.action-bar-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 10px;
+}
+
+.stButton button {
+    border-radius: 8px;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -72,12 +91,20 @@ def get_ui_state(tree):
 # Main App
 # -------------------------------------------------
 def main():
+    if "pending_action" not in st.session_state:
+        st.session_state.pending_action = None
+
+    if "is_thinking" not in st.session_state:
+        st.session_state.is_thinking = False
     if "tree" not in st.session_state:
         st.session_state.tree = init_tree("")
     if "pinned_context" not in st.session_state:
         st.session_state.pinned_context = []
     if "banned_ideas" not in st.session_state:
         st.session_state.banned_ideas = []
+    if "selected_paths" not in st.session_state:
+        st.session_state.selected_paths = []
+
 
     tree = st.session_state.tree
     current_node = get_current_node(tree)
@@ -90,52 +117,53 @@ def main():
     # ==========================================
     with col_editor:
         st.subheader("Editor")
-        st.markdown('<div class="action-bar"><span class="action-bar-title">AI Reasoning Actions</span></div>',
-                    unsafe_allow_html=True)
+
+        st.markdown(
+            """
+            <div class="action-bar">
+                <div class="action-bar-title">AI Reasoning Actions</div>
+            """,
+            unsafe_allow_html=True
+        )
 
         st.session_state.setdefault("focused_text", current_node.get("summary", ""))
+
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
 
         with c1:
-            if st.button("🌱 Expand", help="Explore new angles and expand thinking [cite: 61]"):
-                handle_event(tree, UserEventType.ACTION, {
+            if st.button("🌱 Expand", help="Explore new angles and expand thinking"):
+                st.session_state.pending_action = {
                     "action": ActionType.DIVERGE,
-                    "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas,
                     "user_text": st.session_state["focused_text"],
-                })
-                st.session_state.pop("current_critiques", None)
-                st.session_state.pop("last_refine_diff", None)
+                }
+                st.session_state.is_thinking = True
                 st.rerun()
 
         with c2:
-            if st.button("⚖️ Critique", help="Challenge arguments and find weaknesses [cite: 58]"):
-                response = handle_event(tree, UserEventType.ACTION, {
+            if st.button("⚖️ Critique", help="Challenge arguments and find weaknesses"):
+                st.session_state.pending_action = {
                     "action": ActionType.CRITIQUE,
-                    "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas,
                     "user_text": st.session_state["focused_text"],
-                })
-                st.session_state["current_critiques"] = response.get("items", [])
-                st.session_state.pop("last_refine_diff", None)
+                }
+                st.session_state.is_thinking = True
                 st.rerun()
 
         with c3:
-            if st.button("✨ Refine", help="Improve clarity and structure without changing underlying ideas "):
-                response = handle_event(tree, UserEventType.ACTION, {
+            if st.button("✨ Refine", help="Improve clarity and structure without changing ideas"):
+                st.session_state.pending_action = {
                     "action": ActionType.REFINE,
-                    "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas,
                     "user_text": st.session_state["focused_text"],
-                })
-                if response and response.get("mode") == "refine":
-                    st.session_state["last_refine_diff"] = response.get("diff_html")
-                    refined_text = response.get("options")[0]
-                    current_node["summary"] = refined_text
-                    current_node.setdefault("metadata", {})["html"] = f"<p>{refined_text}</p>"
-                st.session_state.pop("current_critiques", None)
+                }
+                st.session_state.is_thinking = True
                 st.rerun()
 
+        # ⬅️ סוגרים את ה-div
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- close AI Reasoning Actions wrapper ---
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # spacing + editor
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
         st.caption("✏️ Editing current reasoning node")
 
@@ -143,8 +171,11 @@ def main():
             value=current_node.get("metadata", {}).get("html", ""),
             placeholder="Start writing...",
             html=True,
-            toolbar=[["bold", "italic", "underline"], [{"header": [1, 2, 3, False]}],
-                     [{"list": "ordered"}, {"list": "bullet"}]],
+            toolbar=[
+                ["bold", "italic", "underline"],
+                [{"header": [1, 2, 3, False]}],
+                [{"list": "ordered"}, {"list": "bullet"}],
+            ],
             key=f"quill_{current_node['id']}",
         )
 
@@ -233,29 +264,90 @@ def main():
             st.divider()
 
         # 🌿 Suggested Paths
-        visible_children = [cid for cid in current_node["children"] if cid not in st.session_state.banned_ideas]
+        def is_intro_like(text: str) -> bool:
+            return (
+                    "להלן" in text
+                    and "הצעות" in text
+                    and len(text) < 250
+            )
+
+        visible_children = []
+        for cid in current_node["children"]:
+            if cid in st.session_state.banned_ideas:
+                continue
+
+            text = tree["nodes"][cid]["summary"]
+            if is_intro_like(text):
+                continue  # ❌ לא מציגים כ-path
+
+            visible_children.append(cid)
+
         if visible_children:
             st.subheader("Suggested Paths")
+
+            st.caption(
+                "Lantern generated alternative reasoning paths. "
+                "Select one to continue, or discard those you do not wish to pursue."
+            )
+
             for cid in visible_children:
                 child = tree["nodes"][cid]
-                st.markdown(
-                    f'<div class="suggestion-card"><div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>{child.get("created_at", "")}</span></div><div class="suggestion-text">{child["summary"]}</div></div>',
-                    unsafe_allow_html=True)
-                c_sel, c_pin, c_pru = st.columns([1, 1, 1])
-                with c_sel:
-                    if st.button("✅", key=f"s_{cid}"):
-                        handle_event(tree, UserEventType.CHOOSE_OPTION,
-                                     {"option_index": current_node["children"].index(cid)})
-                        st.rerun()
-                with c_pin:
-                    if st.button("📌", key=f"p_{cid}"):
-                        st.session_state.pinned_context.append(child["summary"])
-                        st.rerun()
-                with c_pru:
-                    if st.button("✂️", key=f"pr_{cid}"):
-                        st.session_state.banned_ideas.append(cid)
-                        st.rerun()
 
+                with st.container():
+                    st.markdown(
+                        f'''
+                        <div class="suggestion-card">
+                            <div class="suggestion-meta">
+                                <span>🤖 {child.get("type", "Idea")}</span>
+                                <span>{child.get("created_at", "")}</span>
+                            </div>
+                            <div class="suggestion-text">{child["summary"]}</div>
+                        </div>
+                        ''',
+                        unsafe_allow_html=True
+                    )
+
+                    c_sel, c_pin, c_pru = st.columns([1, 1, 1])
+
+                    # ✅ SELECT
+                    with c_sel:
+                        if st.button(
+                                "✅ Select",
+                                key=f"s_{cid}",
+                                help="Commit this idea without changing your text"
+                        ):
+                            # 🧠 בחירה לוגית בלבד (לא שינוי node)
+                            st.session_state.selected_paths.append(cid)
+
+                            # 📌 Pin אוטומטי
+                            st.session_state.pinned_context.append(child["summary"])
+
+                            # ✅ הגדרת sibling_ids (האחים) כדי להסתיר את שאר ההצעות
+                            parent_id = current_node["id"]
+                            sibling_ids = tree["nodes"][parent_id]["children"]
+
+                            # ✂️ הסתרת שאר ההצעות
+                            for sib_id in sibling_ids:
+                                if sib_id != cid and sib_id not in st.session_state.banned_ideas:
+                                    st.session_state.banned_ideas.append(sib_id)
+
+                            # ניקוי תוצרים אחרים
+                            st.session_state.pop("current_critiques", None)
+                            st.session_state.pop("last_refine_diff", None)
+
+                            st.rerun()
+
+                    # 📌 PIN
+                    with c_pin:
+                        if st.button("📌 Pin", key=f"p_{cid}", help="Keep this idea as context"):
+                            st.session_state.pinned_context.append(child["summary"])
+                            st.rerun()
+
+                    # ✂️ PRUNE
+                    with c_pru:
+                        if st.button("✂️ Remove", key=f"pr_{cid}", help="Discard this idea"):
+                            st.session_state.banned_ideas.append(cid)
+                            st.rerun()
 
 if __name__ == "__main__":
     main()

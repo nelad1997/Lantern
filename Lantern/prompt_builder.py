@@ -33,30 +33,38 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "Rules:\n"
             "- Do NOT rewrite the author's text.\n"
             "- Ensure the 3 options vary significantly in their analytical nature.\n"
-            "- Respond in the same language as the input text.\n\n"
+            "- Respond in the same language as the input text.\n"
+            "- Do NOT include any introductory, concluding, or meta text.\n"
+            "- Do NOT explain what you are about to do.\n"
+            "- Return ONLY the 3 perspectives in the specified format.\n\n"
+
             f"Input & Principles:\n{focus}"
         )
 
     # -------------------------------------------------
     # REFINE — POLISH Mode (Academic Editor)
     # -------------------------------------------------
-    if action == ActionType.REFINE:
+    if action == ActionType.CRITIQUE:
         return (
-            "You are a meticulous academic copyeditor. Your task is to polish the "
-            "text for clarity, flow, and correctness while acting as a mentor.\n"
-            "MODE: POLISH (Surface-Level Refinement)\n\n"
+            "You are a rigorous academic peer reviewer. Your goal is to identify "
+            "weaknesses in the text to help the author make the argument bulletproof.\n"
+            "MODE: CHALLENGE (Devil’s Advocate)\n\n"
 
-            "MANDATORY GUIDELINES:\n"
-            "1. Apply Module 3: Perform a 'Nominalization Audit'. Convert smothered "
-            "verbs (e.g., 'provide an analysis') back to active verbs ('analyze').\n"
-            "2. Apply Module 2: Enforce the 'Old-to-New' information principle for cohesion.\n"
-            "3. Correct grammar, syntax, and punctuation without changing the author's voice.\n"
-            "4. Strictly preserve original meaning; do NOT add new ideas or arguments.\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Apply Module 1 (Logical Rigor) and Module 5 (Ethics/Bibliography) "
+            "from the principles below.\n"
+            "2. Identify 3 major logical gaps, unsubstantiated claims, or hidden assumptions.\n"
+            "3. Check for 'Hasty Generalizations' and 'False Causation'.\n\n"
 
             "Output Rules:\n"
-            "- Output ONLY the refined text.\n"
-            "- No meta-talk, no explanations, no 'Here is your text'.\n"
-            "- Respond in the same language as the input text.\n\n"
+            "- Provide a plain list of 3 short, sharp, and direct critiques.\n"
+            "- Be critical but constructive.\n"
+            "- Do NOT suggest specific rewrites, only point out the flaws.\n"
+            "- Respond in the same language as the input text.\n"
+            "- Do NOT include any introductory, concluding, or meta text.\n"
+            "- Do NOT explain what you are doing or why.\n"
+            "- Return ONLY the list of critiques.\n\n"
+
             f"Input & Principles:\n{focus}"
         )
 
