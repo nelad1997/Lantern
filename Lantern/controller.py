@@ -1,8 +1,8 @@
 import os
 import difflib
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 from definitions import ActionType, UserEventType
-from tree import add_child, set_current
+from tree import add_child, set_current, update_node_metadata
 from prompt_builder import build_prompt
 from llm_client import call_llm
 
@@ -19,51 +19,55 @@ def load_academic_principles() -> str:
 
 
 def generate_diff_html(old_text: str, new_text: str) -> str:
-    """
-    משווה בין שני טקסטים ויוצר HTML המציג שינויים:
-    מילים שנמחקו - אדום עם קו חוצה.
-    מילים שנוספו - ירוק מודגש.
-    """
+    """יוצר HTML המציג שינויים ויזואליים בין הטקסט המקורי למלוטש."""
     output = []
-    # פירוק למילים כדי להשוות ברמת המילה
     matcher = difflib.SequenceMatcher(None, old_text.split(), new_text.split())
-
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'replace':
-            # מילים שהוחלפו
             old_part = " ".join(old_text.split()[i1:i2])
             new_part = " ".join(new_text.split()[j1:j2])
             output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{old_part}</span>')
             output.append(f'<span style="color:#10b981; font-weight:bold;">{new_part}</span>')
         elif tag == 'delete':
-            # מילים שנמחקו
             deleted_part = " ".join(old_text.split()[i1:i2])
             output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{deleted_part}</span>')
         elif tag == 'insert':
-            # מילים שנוספו
             added_part = " ".join(new_text.split()[j1:j2])
             output.append(f'<span style="color:#10b981; font-weight:bold;">{added_part}</span>')
         elif tag == 'equal':
-            # מילים ללא שינוי
             output.append(" ".join(old_text.split()[i1:i2]))
-
     return " ".join(output)
 
 
-def decide_anchor(tree: Dict, user_text: Optional[str]) -> str:
-    return tree["current"]
+def parse_llm_structured_output(llm_output: str) -> Tuple[Optional[str], List[Dict[str, str]]]:
+    """
+    מפרק פלט מורכב הכולל אופציונלית סיכום שורש ואת נתיבי ההמשך.
+    פורמט מצופה:
+    ROOT_SUMMARY | [סיכום של הטקסט המקורי]
+    Title | One-liner | Content
+    """
+    lines = llm_output.strip().split("\n")
+    root_summary = None
+    parsed_options = []
 
+    for line in lines:
+        if not line.strip():
+            continue
 
-def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
-    if user_text:
-        return user_text.strip()
-    return tree["nodes"][anchor_id]["summary"]
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
 
-
-def parse_llm_options(llm_output: str) -> List[str]:
-    """מפרק את פלט ה-LLM לאופציות נפרדות לפי שורות רווח."""
-    blocks = llm_output.split("\n\n")
-    return [block.strip() for block in blocks if block.strip()]
+            # זיהוי שורת סיכום השורש
+            if parts[0] == "ROOT_SUMMARY" and len(parts) >= 2:
+                root_summary = parts[1]
+            # זיהוי נתיבי הסתעפות (Title | One-liner | Content)
+            elif len(parts) >= 3:
+                parsed_options.append({
+                    "title": parts[0],
+                    "one_liner": parts[1],
+                    "content": parts[2]
+                })
+    return root_summary, parsed_options
 
 
 # --- ניהול אירועים ראשי ---
@@ -93,60 +97,65 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     pinned_context = event_context.get("pinned_context", [])
     banned_ids = event_context.get("banned_ideas", [])
 
-    if not isinstance(action, ActionType):
-        raise ValueError("Invalid or missing ActionType")
+    if action == "SAVE_METADATA":
+        node_id = event_context.get("node_id")
+        key = event_context.get("metadata_key")
+        val = event_context.get("metadata_value")
+        update_node_metadata(tree, node_id, key, val)
+        return {"status": "success"}
 
-    anchor_id = decide_anchor(tree, user_text)
-    base_focus = build_focus(tree, anchor_id, user_text)
+    anchor_id = tree["current"]
+    base_focus = user_text.strip() if user_text else tree["nodes"][anchor_id]["summary"]
 
-    # 1. בניית ה-Constraints
+    # בניית ה-Constraints
     constraints = []
     if system_rules:
-        constraints.append(
-            "### ACADEMIC WRITING PRINCIPLES ###\n" + system_rules +
-            "\nNOTE: Apply rigor to analytical sections; favor clarity for introductions."
-        )
-
+        constraints.append("### ACADEMIC WRITING PRINCIPLES ###\n" + system_rules)
     if pinned_context:
-        constraints.append(f"Pinned context:\n- " + "\n- ".join(pinned_context))
-
+        constraints.append("Pinned context:\n- " + "\n- ".join(pinned_context))
     if banned_ids:
         banned_texts = [tree["nodes"][bid]["summary"] for bid in banned_ids if bid in tree["nodes"]]
-        if banned_texts:
-            constraints.append(f"Do NOT suggest:\n- " + "\n- ".join(banned_texts))
+        constraints.append("Do NOT suggest:\n- " + "\n- ".join(banned_texts))
 
-    constraints.append("IMPORTANT: Respond in the same language as the input text.")
-
-    # 2. שליחה ל-LLM
     full_focus_text = base_focus + ("\n\n[SYSTEM CONSTRAINTS]:\n" + "\n".join(constraints) if constraints else "")
     prompt = build_prompt(action, full_focus_text)
     llm_output = call_llm(prompt)
 
-    # 3. עיבוד תוצאה לפי סוג פעולה (הפרדה לשינויים ויזואליים)
+    # עיבוד תוצאה לפי אפיון Lantern
+
+    if action == ActionType.DIVERGE:
+        # שימוש במפרק החדש שמחלץ גם את סיכום השורש
+        root_summary, structured_options = parse_llm_structured_output(llm_output)
+
+        # עדכון סיכום השורש אם אנחנו בצומת ה-Root והתקבל סיכום
+        if root_summary and tree["nodes"][anchor_id].get("type") == "root":
+            update_node_metadata(tree, anchor_id, "one_liner", root_summary)
+
+        for opt in structured_options:
+            add_child(
+                tree,
+                anchor_id,
+                summary=opt["title"],
+                node_type="ai_diverge",
+                metadata={
+                    "one_liner": opt["one_liner"],
+                    "full_content": opt["content"],
+                    "critiques": []
+                }
+            )
+        return {"mode": "options", "options": [o["title"] for o in structured_options]}
 
     if action == ActionType.CRITIQUE:
-        options = parse_llm_options(llm_output)
+        options = [block.strip() for block in llm_output.split("\n") if block.strip()]
         return {"mode": "critique", "items": options}
 
     if action == ActionType.REFINE:
         refined_text = llm_output.strip()
-        # יצירת ה-Diff הויזואלי
         diff_html = generate_diff_html(base_focus, refined_text)
-
-        # הוספת הצומת לעץ
-        add_child(tree, anchor_id, refined_text)
-
-        return {
-            "mode": "refine",
-            "options": [refined_text],
-            "diff_html": diff_html
-        }
-
-    if action == ActionType.DIVERGE:
-        options = parse_llm_options(llm_output)
-        for option in options:
-            add_child(tree, anchor_id, option)
-        return {"mode": "options", "options": options}
+        node = tree["nodes"][anchor_id]
+        node["summary"] = refined_text
+        node.setdefault("metadata", {})["html"] = f"<p>{refined_text}</p>"
+        return {"mode": "refine", "options": [refined_text], "diff_html": diff_html}
 
     return {"status": "error", "message": "Unknown action"}
 
