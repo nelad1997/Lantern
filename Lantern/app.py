@@ -347,7 +347,7 @@ def main():
                     with c_pru:
                         if st.button("✂️ Remove", key=f"pr_{cid}", help="Discard this idea"):
                             st.session_state.banned_ideas.append(cid)
-                            st.rerun()
+                            st.rerun()#chan
 
 if __name__ == "__main__":
     main()
