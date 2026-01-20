@@ -1,8 +1,53 @@
+import os
+import difflib
 from typing import Dict, Optional, Any, List
 from definitions import ActionType, UserEventType
 from tree import add_child, set_current
 from prompt_builder import build_prompt
 from llm_client import call_llm
+
+
+# --- פונקציות עזר לטעינה וניהול ---
+
+def load_academic_principles() -> str:
+    """טוען את מסמך העקרונות האקדמיים מהקובץ החיצוני."""
+    filename = "academic_writing_principles.md"
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
+
+
+def generate_diff_html(old_text: str, new_text: str) -> str:
+    """
+    משווה בין שני טקסטים ויוצר HTML המציג שינויים:
+    מילים שנמחקו - אדום עם קו חוצה.
+    מילים שנוספו - ירוק מודגש.
+    """
+    output = []
+    # פירוק למילים כדי להשוות ברמת המילה
+    matcher = difflib.SequenceMatcher(None, old_text.split(), new_text.split())
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            # מילים שהוחלפו
+            old_part = " ".join(old_text.split()[i1:i2])
+            new_part = " ".join(new_text.split()[j1:j2])
+            output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{old_part}</span>')
+            output.append(f'<span style="color:#10b981; font-weight:bold;">{new_part}</span>')
+        elif tag == 'delete':
+            # מילים שנמחקו
+            deleted_part = " ".join(old_text.split()[i1:i2])
+            output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{deleted_part}</span>')
+        elif tag == 'insert':
+            # מילים שנוספו
+            added_part = " ".join(new_text.split()[j1:j2])
+            output.append(f'<span style="color:#10b981; font-weight:bold;">{added_part}</span>')
+        elif tag == 'equal':
+            # מילים ללא שינוי
+            output.append(" ".join(old_text.split()[i1:i2]))
+
+    return " ".join(output)
 
 
 def decide_anchor(tree: Dict, user_text: Optional[str]) -> str:
@@ -16,19 +61,23 @@ def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
 
 
 def parse_llm_options(llm_output: str) -> List[str]:
+    """מפרק את פלט ה-LLM לאופציות נפרדות לפי שורות רווח."""
     blocks = llm_output.split("\n\n")
     return [block.strip() for block in blocks if block.strip()]
 
+
+# --- ניהול אירועים ראשי ---
 
 def handle_event(
         tree: Dict,
         event_type: UserEventType,
         event_context: Optional[Dict[str, Any]] = None
 ) -> Dict:
+    system_rules = load_academic_principles()
     event_context = event_context or {}
 
     if event_type == UserEventType.ACTION:
-        return _handle_action(tree, event_context)
+        return _handle_action(tree, event_context, system_rules)
 
     if event_type == UserEventType.CHOOSE_OPTION:
         return _handle_choose_option(tree, event_context)
@@ -36,16 +85,13 @@ def handle_event(
     raise ValueError("Unsupported UserEventType")
 
 
-def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
-    """
-    Handle an ACTION event with support for Context, Blocklist, and Language.
-    """
+# --- טיפול בפעולות ---
+
+def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str) -> Dict:
     action = event_context.get("action")
     user_text = event_context.get("user_text")
-
-    # שליפת נתונים מה-App (רשימות הקשר וחסימות)
-    pinned_context = event_context.get("pinned_context", [])  # רשימת מחרוזות
-    banned_ids = event_context.get("banned_ideas", [])  # רשימת IDs
+    pinned_context = event_context.get("pinned_context", [])
+    banned_ids = event_context.get("banned_ideas", [])
 
     if not isinstance(action, ActionType):
         raise ValueError("Invalid or missing ActionType")
@@ -53,117 +99,62 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     anchor_id = decide_anchor(tree, user_text)
     base_focus = build_focus(tree, anchor_id, user_text)
 
-    # -------------------------------------------------
-    # 1. בניית הוראות נוספות (Constraints)
-    # -------------------------------------------------
+    # 1. בניית ה-Constraints
     constraints = []
-
-    # הוספת הקשר (Pinned Ideas)
-    if pinned_context:
-        context_str = "\n- ".join(pinned_context)
+    if system_rules:
         constraints.append(
-            f"Consider the following pinned context/ideas:\n- {context_str}"
+            "### ACADEMIC WRITING PRINCIPLES ###\n" + system_rules +
+            "\nNOTE: Apply rigor to analytical sections; favor clarity for introductions."
         )
 
-    # הוספת חסימות (Banned Ideas)
+    if pinned_context:
+        constraints.append(f"Pinned context:\n- " + "\n- ".join(pinned_context))
+
     if banned_ids:
-        banned_texts = []
-        for bid in banned_ids:
-            if bid in tree["nodes"]:
-                banned_texts.append(tree["nodes"][bid]["summary"])
-
+        banned_texts = [tree["nodes"][bid]["summary"] for bid in banned_ids if bid in tree["nodes"]]
         if banned_texts:
-            banned_str = "\n- ".join(banned_texts)
-            constraints.append(
-                f"Do NOT suggest the following ideas again:\n- {banned_str}"
-            )
+            constraints.append(f"Do NOT suggest:\n- " + "\n- ".join(banned_texts))
 
-    # -------------------------------------------------
-    # Academic Writing Principles — PREPARATION HOOK
-    # -------------------------------------------------
-    def load_academic_principles(
-            path="academic_writing_principles.md"
-    ) -> str:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            return ""
+    constraints.append("IMPORTANT: Respond in the same language as the input text.")
 
-    # TODO (Static Context Injection):
-    # Load and inject a fixed academic writing principles document here.
-    #
-    # Example future file:
-    #   "academic_writing_principles.md"
-    #
-    # Intended behavior:
-    # - The document should be appended to `constraints` as SYSTEM INSTRUCTIONS.
-    # - Apply the principles ONLY to analytical / thematic sections.
-    # - Do NOT apply them to introduction / background sections.
-    #
-    # Example future implementation:
-    #
-    # academic_principles_text = load_academic_principles()
-    # if academic_principles_text:
-    #     constraints.append(
-    #         "Academic Writing Principles:\n"
-    #         + academic_principles_text
-    #     )
-
-    # -------------------------------------------------
-    # 2. הוראת שפה (Language Instruction)
-    # -------------------------------------------------
-    constraints.append(
-        "IMPORTANT: Respond in the same language as the input text."
-    )
-
-    # -------------------------------------------------
-    # 3. הרכבת הפוקוס הסופי
-    # -------------------------------------------------
-    full_focus_text = base_focus
-    if constraints:
-        full_focus_text += (
-            "\n\n[SYSTEM INSTRUCTIONS]:\n"
-            + "\n".join(constraints)
-        )
-
-    # יצירת הפרומפט וקריאה ל-LLM
+    # 2. שליחה ל-LLM
+    full_focus_text = base_focus + ("\n\n[SYSTEM CONSTRAINTS]:\n" + "\n".join(constraints) if constraints else "")
     prompt = build_prompt(action, full_focus_text)
     llm_output = call_llm(prompt)
-    options = parse_llm_options(llm_output)
+
+    # 3. עיבוד תוצאה לפי סוג פעולה (הפרדה לשינויים ויזואליים)
 
     if action == ActionType.CRITIQUE:
+        options = parse_llm_options(llm_output)
+        return {"mode": "critique", "items": options}
+
+    if action == ActionType.REFINE:
+        refined_text = llm_output.strip()
+        # יצירת ה-Diff הויזואלי
+        diff_html = generate_diff_html(base_focus, refined_text)
+
+        # הוספת הצומת לעץ
+        add_child(tree, anchor_id, refined_text)
+
         return {
-            "mode": "critique",
-            "items": options  # מחזירים רשימה של הערות, לא טקסט אחד ארוך
+            "mode": "refine",
+            "options": [refined_text],
+            "diff_html": diff_html
         }
 
-    # DIVERGE / REFINE create new child nodes
-    for option in options:
-        add_child(tree, anchor_id, option)
+    if action == ActionType.DIVERGE:
+        options = parse_llm_options(llm_output)
+        for option in options:
+            add_child(tree, anchor_id, option)
+        return {"mode": "options", "options": options}
 
-    return {
-        "mode": "options",
-        "options": options
-    }
+    return {"status": "error", "message": "Unknown action"}
 
 
 def _handle_choose_option(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     option_index = event_context.get("option_index")
-
-    if option_index is None:
-        raise ValueError("option_index is required")
-
     current_id = tree["current"]
     children = tree["nodes"][current_id]["children"]
-
-    if option_index < 0 or option_index >= len(children):
-        raise IndexError("Invalid option index")
-
     chosen_child_id = children[option_index]
     set_current(tree, chosen_child_id)
-
-    return {
-        "mode": "continue",
-        "current_text": tree["nodes"][chosen_child_id]["summary"]
-    }
+    return {"mode": "continue", "current_text": tree["nodes"][chosen_child_id]["summary"]}
