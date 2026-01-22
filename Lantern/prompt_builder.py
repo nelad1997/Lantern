@@ -3,67 +3,95 @@ from definitions import ActionType
 
 def build_prompt(action: ActionType, focus: str) -> str:
     """
-    בונה פרומפט עבור ה-LLM המבוסס על סוג הסוכן.
-    המשתנה focus מכיל את הטקסט של המשתמש ואת העקרונות האקדמיים (Principles).
+    Builds a prompt for the LLM based on the requested action.
+    The 'focus' variable contains both the user's draft and the
+    Academic Writing Principles injected by the controller.
     """
 
     # -------------------------------------------------
-    # DIVERGE — IDEA EXPANDER (Module 4: Synthesis)
+    # DIVERGE — EXPLORE Mode (Thematic Perspectives)
     # -------------------------------------------------
     if action == ActionType.DIVERGE:
         return (
-            "You are a world-class academic mentor. Suggest 3 new directions to develop the argument.\n"
+            "You are a world-class academic mentor. Your task is to suggest "
+            "new directions to develop the author's argument.\n"
             "MODE: EXPLORE (Thematic Divergence)\n\n"
 
             "INSTRUCTIONS:\n"
-            "1. Apply Module 4 (Synthesis) from the principles below to guide your brainstorming.\n"
-            "2. Generate 3 distinct academic perspectives (e.g., theoretical, social, or empirical).\n"
-            "3. Ensure the options vary significantly and avoid incremental changes.\n"
-            "4. DO NOT include introductory or meta text (e.g., 'Here are 3 ideas').\n"
-            "5. Return ONLY the 3 perspectives, separated by a newline.\n\n"
-            "6. For each option, provide: a Title (3 words), a One-liner (10 words max), and the Full Content.\n"
-            "7. Format: Title | One-liner | Content\n"
+            "1. Apply Module 4 (Synthesis) from the principles below.\n"
+            "2. Internal Process: Brainstorm 6 distinct academic perspectives "
+            "(e.g., theoretical, empirical, interdisciplinary, or counter-argumentative).\n"
+            "3. Evaluation: Score each based on intellectual rigor and novelty.\n"
+            "4. Selection: Select the TOP 3 winners to present to the user.\n\n"
 
-            "LANGUAGE RULE: Respond STRICTLY in the same language as the 'Input Text' below. "
-            "If the input is Hebrew, the response MUST be Hebrew.\n\n"
+            "Output Format (STRICT):\n"
+            "For each of the 3 selected perspectives:\n"
+            "Title: <A short, academic name for the lens>\n"
+            "Title: <A short, academic name for the lens>\n"
+            "Explanation: <Concise explanation (MAX 40 WORDS) of how this lens applies.>\n\n"
 
-            f"Input & Principles:\n{focus}"
-        )
-
-    # -------------------------------------------------
-    # CRITIQUE — DEVIL'S ADVOCATE (Module 1 & 5: Rigor/Ethics)
-    # -------------------------------------------------
-    if action == ActionType.CRITIQUE:
-        return (
-            "You are a rigorous academic peer reviewer. Identify weaknesses to make the argument bulletproof.\n"
-            "MODE: CHALLENGE (Devil’s Advocate)\n\n"
-
-            "INSTRUCTIONS:\n"
-            "1. Apply Module 1 (Logical Rigor) and Module 5 (Ethics/Bibliography) from the principles below.\n"
-            "2. Identify 3 major logical gaps, unsubstantiated claims, or hidden assumptions.\n"
-            "3. Provide a plain list of 3 short, sharp, and direct critiques.\n"
-            "4. DO NOT suggest rewrites, only point out flaws.\n\n"
-
-            "LANGUAGE RULE: Respond STRICTLY in the same language as the 'Input Text' below.\n\n"
+            "Rules:\n"
+            "- Do NOT rewrite the author's text.\n"
+            "- KEEP IT SHORT. The user should not have to scroll.\n"
+            "- Ensure the 3 options vary significantly in their analytical nature.\n"
+            "- Respond in the same language as the input text.\n"
+            "- Do NOT include any introductory, concluding, or meta text.\n"
+            "- Do NOT explain what you are about to do.\n"
+            "- Return ONLY the 3 perspectives in the specified format.\n\n"
 
             f"Input & Principles:\n{focus}"
         )
 
     # -------------------------------------------------
-    # REFINE — POLISHER (Academic Clarity & Style)
+    # REFINE — POLISH Mode (Academic Editor)
     # -------------------------------------------------
     if action == ActionType.REFINE:
         return (
-            "You are a professional academic editor. Improve the clarity and flow of the text.\n"
-            "MODE: REFINE (Academic Polisher)\n\n"
+            "You are a meticulous academic editor. Your task is to improve the "
+            "clarity, flow, and structure of the author's text WITHOUT changing "
+            "the core arguments or adding new ideas.\n"
+            "MODE: REFINE (Polish & Clarity)\n\n"
 
             "INSTRUCTIONS:\n"
-            "1. Rewrite the text to be more precise, coherent, and academically rigorous.\n"
-            "2. Maintain the original meaning while improving the writing style.\n"
-            "3. Return ONLY the improved text, no explanations or meta-talk.\n\n"
+            "1. Improve sentence structure and academic tone.\n"
+            "2. Fix ambiguities and ensure smooth transitions.\n"
+            "3. Keep the original meaning and arguments intact.\n\n"
 
-            "LANGUAGE RULE: Respond STRICTLY in the same language as the 'Input Text' below.\n\n"
+            "Output Rules:\n"
+            "- Return ONLY the refined text.\n"
+            "- Do NOT include any introductory or concluding text.\n"
+            "- Respond in the same language as the input text.\n\n"
 
+            f"Input:\n{focus}"
+        )
+
+    # -------------------------------------------------
+    # CRITIQUE — CHALLENGE Mode (Peer Reviewer)
+    # -------------------------------------------------
+    if action == ActionType.CRITIQUE:
+        return (
+            "You are a rigorous academic peer reviewer. Your goal is to identify "
+            "weaknesses in the text to help the author make the argument bulletproof.\n"
+            "MODE: CHALLENGE (Devil’s Advocate)\n\n"
+
+            "INSTRUCTIONS:\n"
+            "1. Context Awareness: First, infer if the text adopts a specific theoretical "
+            "or analytical lens (e.g., economic, ethical, etc.). If so, critique how well "
+            "it applies that lens, in addition to general logic.\n"
+            "2. Apply Module 1 (Logical Rigor) and Module 5 (Ethics/Bibliography) "
+            "from the principles below.\n"
+            "3. Identify the ONE most critical logical gap, unsubstantiated claim, or hidden assumption.\n"
+            "4. Check for 'Hasty Generalizations' and 'False Causation'.\n\n"
+
+            "Output Rules:\n"
+            "- Provide ONE short, sharp, and direct critique.\n"
+            "- Output Format (STRICT):\n"
+            "Title: <Short 3-5 word title for the critique>\n"
+            "Critique: <The critique content>\n"
+            "- Be critical but constructive.\n"
+            "- Do NOT suggest specific rewrites, only point out the flaws.\n"
+            "- Respond in the same language as the input text.\n"
+            "- STRICTLY NO introductory text. Start directly with the 'Title:' line.\n\n"
             f"Input & Principles:\n{focus}"
         )
 

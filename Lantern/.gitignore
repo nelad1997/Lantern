@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.gemini/
+logo.jpg
+# (Any other large or sensitive files)
