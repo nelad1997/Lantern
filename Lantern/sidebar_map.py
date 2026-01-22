@@ -1,172 +1,167 @@
 import streamlit as st
-from tree import get_node, navigate_to_node
+import graphviz
+from tree import get_node, get_children, navigate_to_node
 
+def truncate(text, length=20):
+    return text[:length] + "..." if len(text) > length else text
+
+def get_depth(tree, node_id):
+    depth = 0
+    curr = tree["nodes"].get(node_id)
+    while curr and curr["parent"]:
+        depth += 1
+        curr = tree["nodes"].get(curr["parent"])
+    return depth
+
+def get_node_color(node, current_id, banned_ids):
+    if node["id"] == current_id:
+        return "#7c3aed", "white" # Purple-600, White text
+    if node["id"] in banned_ids:
+        return "#f1f5f9", "#94a3b8" # Slate-100, Slate-400
+    if node["type"] == "root":
+        return "#ecfdf5", "#047857" # Emerald-50, Emerald-700
+    return "#ffffff", "#334155" # White, Slate-700
+
+def format_for_pin(text):
+    """Helper to format text nicely for Pinned Context (bold title)."""
+    if "Title:" in text:
+        if "Explanation:" in text:
+             parts = text.replace("Title:", "").split("Explanation:", 1)
+        else:
+             parts = text.replace("Title:", "").split("\n", 1)
+        
+        if len(parts) >= 2:
+            return f"**{parts[0].strip(' *')}**\n\n{parts[1].strip()}"
+    return text
 
 def render_sidebar_map(tree):
     """
-    Renders the vertical 'Reasoning Map' in the sidebar.
+    Renders the tree visualization using Graphviz and navigation buttons.
     """
+    st.sidebar.subheader("🗺️ Thought Tree")
 
-    # 1. CSS Injection for the Subway Map Look
-    st.markdown("""
-    <style>
-        /* Container for the timeline */
-        .timeline-container {
-            position: relative;
-            padding-left: 20px;
-            margin-bottom: 20px;
-            border-left: 2px solid #e2e8f0; /* The main vertical line */
-        }
+    # 1. Graphviz Visualization
+    graph = graphviz.Digraph()
+    graph.attr(rankdir='TB', size='3,5') # Top-to-Bottom, constrained width
+    graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', fontsize='10')
+    graph.attr('edge', color='#cbd5e1')
 
-        /* The Node Dots */
-        .timeline-dot {
-            position: absolute;
-            left: -27px; /* Align with the line */
-            top: 15px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background-color: white;
-            border: 2px solid #cbd5e1;
-            z-index: 10;
-        }
-
-        .timeline-dot.active {
-            background-color: #7c3aed; /* Purple-600 */
-            border-color: #7c3aed;
-            box-shadow: 0 0 0 4px #ede9fe; /* Ring effect */
-        }
-
-        .timeline-dot.pruned {
-            width: 8px;
-            height: 8px;
-            left: -25px;
-            border: 2px solid #94a3b8;
-            background-color: #f1f5f9;
-        }
-
-        /* Styling Streamlit Buttons to look like cards */
-        div[data-testid="stVerticalBlock"] button {
-            text-align: left;
-            border: none;
-            background-color: transparent;
-            padding: 4px 0px;
-            transition: all 0.2s;
-            color: #64748b;
-        }
-
-        div[data-testid="stVerticalBlock"] button:hover {
-            color: #7c3aed;
-            padding-left: 4px;
-        }
-
-        div[data-testid="stVerticalBlock"] button p {
-            font-size: 0.9rem;
-            font-weight: 400;
-        }
-
-        /* Active Node Styling */
-        .active-node-box {
-            background-color: #f5f3ff; /* Purple-50 */
-            border: 1px solid #ddd6fe;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 12px;
-        }
-
-        .active-title {
-            color: #5b21b6;
-            font-weight: 700;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 4px;
-        }
-
-        .active-summary {
-            color: #1e293b;
-            font-size: 0.95rem;
-            line-height: 1.4;
-        }
-
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 2. Logic: Trace path from Root to Current
+    # Traverse and build graph (BFS/DFS)
+    # To avoid huge graphs, we might limit depth or focus on active branch? 
+    # For now, render full tree (assuming reasonably small sessions)
+    
     current_id = tree["current"]
+    banned_ids = st.session_state.get("banned_ideas", [])
+    
+    for node_id, node in tree["nodes"].items():
+        # Skip completely if it's a "deep" banned node? No, show them as pruned.
+        
+        fill_color, font_color = get_node_color(node, current_id, banned_ids)
+        border_color = "#7c3aed" if node_id == current_id else "#e2e8f0"
+        penwidth = "2" if node_id == current_id else "1"
+        
+        # Prefer 'label' from metadata (if available) for the tree node text
+        raw_label = node.get("metadata", {}).get("label", node["summary"])
+        label = truncate(raw_label, 15)
+        tooltip = raw_label
+        
+        graph.node(node_id, label=label, fillcolor=fill_color, fontcolor=font_color, color=border_color, penwidth=penwidth, tooltip=tooltip)
+        
+        if node["parent"]:
+             graph.edge(node["parent"], node_id)
+
+    st.sidebar.graphviz_chart(graph, use_container_width=True)
+
+    # 2. Navigation Tools
+    st.sidebar.divider()
+    st.sidebar.subheader("📍 Navigation", help="Navigate through your thought history. Click on previous nodes to return to them.")
+    
+    # Show Ancestors (Path to Root)
+    st.sidebar.caption("Current Path", help="The sequence of ideas leading to your current state.")
+    
     path = []
     temp_id = current_id
-
-    # Backtrack from current to root to find the active path
     while temp_id:
         node = get_node(tree, temp_id)
         path.append(node)
         temp_id = node["parent"]
+    path.reverse()
+    
+    for node in path:
+        is_active = (node["id"] == current_id)
+        
+        # Handle empty summaries (e.g. root)
+        nav_text = node['summary']
+        if not nav_text or not nav_text.strip():
+            nav_text = "Start" if node["type"] == "root" else "Untitled Idea"
+            
+        label = f"{'🟣' if is_active else '⚪'} {truncate(nav_text, 25)}"
+        if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Go back to: {nav_text}"):
+            # Auto-Pin logic
+            pinned_text = format_for_pin(node['summary'])
+            if pinned_text not in st.session_state.pinned_context:
+                st.session_state.pinned_context.append(pinned_text)
+            
+            navigate_to_node(tree, node['id'])
+            st.rerun()
 
-    path.reverse()  # Now it's [Root, ..., Current]
+    # Show Siblings (Alternatives)
+    current_node = get_node(tree, current_id)
+    if current_node["parent"]:
+        siblings = get_children(tree, current_node["parent"])
+        alternatives = [s for s in siblings if s["id"] != current_id and s["id"] not in banned_ids]
+        
+        if alternatives:
+            st.sidebar.caption("Alternatives", help="Other ideas you explored at this step.")
+            for sib in alternatives:
+                if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch to: {sib['summary']}"):
+                    # Auto-Pin logic
+                    pinned_text = format_for_pin(sib['summary'])
+                    if pinned_text not in st.session_state.pinned_context:
+                        st.session_state.pinned_context.append(pinned_text)
 
-    st.sidebar.markdown("### 🗺️ Reasoning Map")
-
-    # 3. Render the Path
-    with st.sidebar.container():
-        st.markdown('<div class="timeline-container">', unsafe_allow_html=True)
-
-        for i, node in enumerate(path):
-            is_current = (node["id"] == current_id)
-
-            # --- Render The Active Node ---
-
-            # 1. The Dot (Visual only)
-            st.markdown(f"""
-            <div class="timeline-dot active" style="top: {i * 100}px;"></div>
-            """, unsafe_allow_html=True)
-
-            # 2. The Content
-            if is_current:
-                # Highlighted Box for Current Node
-                st.markdown(f"""
-                <div class="active-node-box">
-                    <div class="active-title">Currently Editing</div>
-                    <div class="active-summary">{node['summary'][:60]}...</div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                # Clickable Button for Ancestors (to navigate back)
-                # Note: We limit summary length to prevent button overflow
-                if st.button(f"{node['summary'][:40]}...", key=f"nav_{node['id']}"):
-                    navigate_to_node(tree, node['id'])
+                    navigate_to_node(tree, sib['id'])
                     st.rerun()
 
-            # --- Render Siblings (Pruned/Alternatives) ---
-            if node["parent"]:
-                parent = get_node(tree, node["parent"])
-                siblings = parent["children"]
+    # 3. Direct Jump (Dropdown)
+    st.sidebar.divider()
+    st.sidebar.caption("🔍 Jump to any node", help="Directly jump to any specific idea in the tree.")
+    
+    # Sort nodes by creation order or hierarchy? Hierarchy is better but harder to sort flat list.
+    # Let's just list them all with depth indentation.
+    all_nodes_list = list(tree["nodes"].values())
+    
+    # Simple sort by ID (approx creation time) to keep order stable
+    all_nodes_list.sort(key=lambda x: x["id"])
+    
+    def format_node_option(n):
+        depth = get_depth(tree, n["id"])
+        prefix = "— " * depth
+        label = truncate(n["summary"], 40)
+        return f"{prefix}{label}"
+        
+    # Find index of current
+    current_idx = 0
+    for idx, n in enumerate(all_nodes_list):
+        if n["id"] == current_id:
+            current_idx = idx
+            break
 
-                for sib_id in siblings:
-                    if sib_id == node["id"]:
-                        continue  # Skip self
-
-                    if sib_id in st.session_state.banned_ideas:
-                        continue  # Skip banned
-
-                    sib_node = get_node(tree, sib_id)
-
-                    # Render Ghost Node (Pruned branch)
-                    col_ghost, col_btn = st.columns([0.1, 0.9])
-                    with col_btn:
-                        if st.button(f"⚪ {sib_node['summary'][:30]}", key=f"ghost_{sib_id}",
-                                     help="Restore this alternative path"):
-                            navigate_to_node(tree, sib_id)
-                            st.rerun()
-
-            # Add spacing between nodes
-            st.markdown("<div style='margin-bottom: 24px'></div>", unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)  # Close timeline-container
-
-    # 4. "Next" Indicator
-    st.sidebar.markdown("""
-    <div style="margin-left: 26px; color: #94a3b8; font-size: 0.8rem; font-style: italic;">
-       ↓ Awaiting next thought...
-    </div>
-    """, unsafe_allow_html=True)
+    target_node = st.sidebar.selectbox(
+        "Select Node", 
+        all_nodes_list, 
+        format_func=format_node_option,
+        index=current_idx,
+        key="jump_box",
+        help="Choose a node from the full list."
+    )
+    
+    if st.sidebar.button("Go", key="jump_btn", use_container_width=True, help="Navigate to the selected node and pin it."):
+         if target_node["id"] != current_id:
+             # Auto-Pin logic
+            pinned_text = format_for_pin(target_node['summary'])
+            if pinned_text not in st.session_state.pinned_context:
+                st.session_state.pinned_context.append(pinned_text)
+            
+            navigate_to_node(tree, target_node['id'])
+            st.rerun()

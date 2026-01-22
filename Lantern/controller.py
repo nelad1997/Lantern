@@ -66,6 +66,34 @@ def parse_llm_options(llm_output: str) -> List[str]:
     return [block.strip() for block in blocks if block.strip()]
 
 
+def apply_fuzzy_replacement(full_text: str, target: str, replacement: str) -> Optional[str]:
+    """
+    מנסה למצוא ולהחליף משפט בטקסט גם אם יש הבדלים קטנים (רווחים וכו').
+    מחזיר את הטקסט החדש או None אם לא נמצאה התאמה מספקת.
+    """
+    if not target or not full_text:
+        return None
+        
+    # ניסיון ראשון: התאמה מדויקת (הכי בטוח)
+    if target in full_text:
+        return full_text.replace(target, replacement, 1)
+        
+    # ניסיון שני: התאמה ללא רווחים
+    # (זה מורכב ליישום ישיר על האינדקסים המקוריים, אז נשתמש ב-SequenceMatcher)
+    
+    # שימוש ב-SequenceMatcher למציאת הבלוק הכי דומה
+    matcher = difflib.SequenceMatcher(None, full_text, target)
+    match = matcher.find_longest_match(0, len(full_text), 0, len(target))
+    
+    # בדיקת איכות ההתאמה (האם מצאנו את רוב המשפט?)
+    if match.size > len(target) * 0.8:  # 80% התאמה
+        # החלפת הבלוק שנמצא
+        start, end = match.a, match.a + match.size
+        return full_text[:start] + replacement + full_text[end:]
+        
+    return None
+
+
 # --- ניהול אירועים ראשי ---
 
 def handle_event(
@@ -115,6 +143,14 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         if banned_texts:
             constraints.append(f"Do NOT suggest:\n- " + "\n- ".join(banned_texts))
 
+    # --- Stronger Deduplication (Check existing siblings) ---
+    if action == ActionType.DIVERGE:
+        current_node = tree["nodes"][anchor_id]
+        existing_children_ids = current_node.get("children", [])
+        existing_summaries = [tree["nodes"][cid]["summary"] for cid in existing_children_ids if cid in tree["nodes"]]
+        if existing_summaries:
+             constraints.append(f"ALREADY EXPLORED (Do not repeat these angles):\n- " + "\n- ".join(existing_summaries))
+
     constraints.append("IMPORTANT: Respond in the same language as the input text.")
 
     # 2. שליחה ל-LLM
@@ -133,12 +169,9 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         # יצירת ה-Diff הויזואלי
         diff_html = generate_diff_html(base_focus, refined_text)
 
-        # הוספת הצומת לעץ
-        add_child(tree, anchor_id, refined_text)
-
         return {
             "mode": "refine",
-            "options": [refined_text],
+            "refined_text": refined_text, 
             "diff_html": diff_html
         }
 
