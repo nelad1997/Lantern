@@ -241,13 +241,15 @@ def main():
     # ==========================================
     # SIDEBAR TOOLS
     # ==========================================
+    render_sidebar_map(tree)
+    
     with st.sidebar.expander("⚖️ Compare Branches", expanded=False):
-        st.caption("Select two nodes to see a visual side-by-side diff.")
+        st.caption("Select two nodes to see a visual side-by-side diff.", help="Choose any two ideas from your history to see how they differ.")
         all_nodes = list(tree["nodes"].values())
         format_func = lambda n: f"{n['summary'][:40]}... ({n['type']})"
-        node_a = st.selectbox("Node A", all_nodes, format_func=format_func, index=all_nodes.index(get_current_node(tree)), key="cmp_a")
-        node_b = st.selectbox("Node B", all_nodes, format_func=format_func, index=0, key="cmp_b")
-        if st.sidebar.button("Compare Ideas"):
+        node_a = st.selectbox("Node A", all_nodes, format_func=format_func, index=all_nodes.index(get_current_node(tree)), key="cmp_a", help="Select the first idea to compare (defaults to current).")
+        node_b = st.selectbox("Node B", all_nodes, format_func=format_func, index=0, key="cmp_b", help="Select the second idea to compare against.")
+        if st.sidebar.button("Compare Ideas", help="Launch the comparison view to see exactly what changed."):
             st.session_state.comparison_data = {"a": node_a, "b": node_b}
             st.rerun()
 
