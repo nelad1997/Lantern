@@ -2,6 +2,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from typing import Optional
+import time
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -47,23 +48,36 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
     )
 
     # 3. בניית הפרומפט הסופי בעזרת ה-Prompt Builder
-    # ה-Builder משלב את ה-system_instructions בתוך ה-focus או כחלק מההוראות
     prompt = build_prompt(action, focus)
 
     logger.info(f"🚀 Calling Gemini API for Action: {action.name}")
 
-    try:
-        response = model.generate_content(prompt)
+    max_retries = 3
+    retry_delay = 2 # seconds
 
-        if not response or not response.text:
-            logger.warning("Gemini returned an empty response")
-            raise RuntimeError("Empty response from Gemini")
+    for attempt in range(max_retries):
+        try:
+            response = model.generate_content(prompt)
 
-        return response.text.strip()
+            if not response or not response.text:
+                logger.warning("Gemini returned an empty response")
+                raise RuntimeError("Empty response from Gemini")
 
-    except Exception as e:
-        logger.error(f"Error during Gemini API call: {e}")
-        raise e
+            return response.text.strip()
+
+        except Exception as e:
+            if "429" in str(e) or "ResourceExhausted" in str(e):
+                if attempt < max_retries - 1:
+                    logger.warning(f"Rate limit hit. Retrying in {retry_delay}s... (Attempt {attempt + 1})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2 # Exponential backoff
+                    continue
+                else:
+                    logger.error("Rate limit exceeded consistently. Please wait a minute.")
+                    raise RuntimeError("מכסת הקריאות ל-API הסתיימה לבינתיים. אנא המתן דקה ונסה שוב.")
+            
+            logger.error(f"Error during Gemini API call: {e}")
+            raise e
 
 
 # פונקציית עזר למקרה שצריך קריאה ישירה (תאימות לאחור)

@@ -666,27 +666,34 @@ def main():
         if st.session_state.pending_action and st.session_state.is_thinking:
             payload = st.session_state.pending_action
 
-            response = handle_event(
-                st.session_state.tree,
-                UserEventType.ACTION,
-                {
-                    "action": payload["action"],
-                    "pinned_context": st.session_state.pinned_context,
-                    "banned_ideas": st.session_state.banned_ideas,
-                    "user_text": payload["user_text"],
-                    "knowledge_base": st.session_state.get("knowledge_base", {}),
-                }
-            )
+            try:
+                response = handle_event(
+                    st.session_state.tree,
+                    UserEventType.ACTION,
+                    {
+                        "action": payload["action"],
+                        "pinned_context": st.session_state.pinned_context,
+                        "banned_ideas": st.session_state.banned_ideas,
+                        "user_text": payload["user_text"],
+                        "knowledge_base": st.session_state.get("knowledge_base", {}),
+                    }
+                )
 
-            if payload["action"] == ActionType.CRITIQUE:
-                st.session_state["current_critiques"] = response.get("items", [])
+                if payload["action"] == ActionType.CRITIQUE:
+                    st.session_state["current_critiques"] = response.get("items", [])
 
-            elif payload["action"] == ActionType.REFINE:
-                st.session_state["last_refine_diff"] = response.get("diff_html")
-                st.session_state["last_refine_text"] = response.get("refined_text")
-                # Save what we originally sent, so we can replace ONLY that part later
-                st.session_state["last_refine_original_target"] = payload["user_text"]
-                st.session_state.pop("refine_changes", None)
+                elif payload["action"] == ActionType.REFINE:
+                    st.session_state["last_refine_diff"] = response.get("diff_html")
+                    st.session_state["last_refine_text"] = response.get("refined_text")
+                    # Save what we originally sent, so we can replace ONLY that part later
+                    st.session_state["last_refine_original_target"] = payload["user_text"]
+                    st.session_state.pop("refine_changes", None)
+
+            except Exception as e:
+                st.error(f"❌ Gemini Error: {e}")
+                st.session_state.pending_action = None
+                st.session_state.is_thinking = False
+                st.stop()
 
             # DIVERGE → הילדים כבר נוספו לעץ ע"י controller
 
