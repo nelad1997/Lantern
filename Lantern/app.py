@@ -358,23 +358,40 @@ def main():
                 with c_txt:
                     st.markdown(f'<div class="pinned-box">{p_text}</div>', unsafe_allow_html=True)
                 with c_btns:
-                    if st.button("❌", key=f"unpin_{i}", help="Unpin", use_container_width=True):
+                    if st.button("❌", key=f"unpin_{i}", help="Remove from context", use_container_width=True):
                         st.session_state.pinned_context.pop(i)
                         st.rerun()
                 
-                # Show Select button BELOW the box if it's a node and not current
-                if p_id and p_id != tree["current"]:
-                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Navigate to this node and clear context", use_container_width=True):
+                # Show Select button BELOW the box if it's not the current node
+                # (either it has a different ID, or it has no ID at all because it was just pinned)
+                if p_id != tree["current"]:
+                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Transform this idea into your main path and clear other context", use_container_width=True):
+                        target_id = p_id
+                        
+                        # If it doesn't have an ID, create a node now
+                        if not target_id:
+                            from tree import add_child
+                            # Simple parsing for pinned critiques/suggestions
+                            clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
+                            target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
+                            
+                            # Inherit HTML
+                            parent_html = current_node.get("metadata", {}).get("html", "")
+                            if not parent_html and current_node["summary"]:
+                                parent_html = f"<p>{current_node['summary']}</p>"
+                            tree["nodes"][target_id].setdefault("metadata", {})["html"] = parent_html
+                        
                         # Clear context on select as requested
                         st.session_state.pinned_context = []
                         st.session_state.selected_paths = []
+                        
                         # Navigate
-                        navigate_to_node(tree, p_id)
+                        navigate_to_node(tree, target_id)
                         if "editor_version" in st.session_state:
                             st.session_state.editor_version += 1
                         st.rerun()
 
-            if st.button("Clear Context"):
+            if st.button("Clear all context", help="Wipe all pinned items"):
                 st.session_state.pinned_context = []
                 st.session_state.selected_paths = []
                 st.session_state.banned_ideas = []
