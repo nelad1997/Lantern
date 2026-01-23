@@ -28,7 +28,7 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "Output Format (STRICT):\n"
             "For each of the 3 selected perspectives:\n"
             "Title: <A short, concrete, and highly descriptive name for the lens - avoid generic names>\n"
-            "Module: <The specific academic principle applied (e.g. Synthesis, Empirical Analysis)>\n"
+            "Module: <The specific academic principle applied>\n"
             "Explanation: <Rich explanation (MAX 100 WORDS) of how this lens applies.>\n\n"
 
             "Rules:\n"

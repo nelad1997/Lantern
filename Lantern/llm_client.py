@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # --- Rate Limiter ---
 class RateLimiter:
-    def __init__(self, cooldown_seconds=3.0):
+    def __init__(self, cooldown_seconds=7.0):
         self.cooldown = cooldown_seconds
         self.last_call_time = 0
 
@@ -61,7 +61,7 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
 
     # הגדרת המודל (שימוש ב-Flash 2.0)
     model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
+        model_name="gemini-2.5-flash",
         safety_settings=safety_settings,
     )
 
