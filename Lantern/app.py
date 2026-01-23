@@ -196,7 +196,7 @@ def main():
 
         html_content = st_quill(
             value=current_node.get("metadata", {}).get("html", ""),
-            placeholder="Start writing...",
+            placeholder="Start drafting your thoughts here... (This is a transparent placeholder)",
             html=True,
             toolbar=[
                 ["bold", "italic", "underline"],
@@ -293,13 +293,22 @@ def main():
         if st.session_state.pinned_context:
             st.markdown("<br><b>📌 Pinned Context</b>", unsafe_allow_html=True)
             for i, item in enumerate(st.session_state.pinned_context):
-                c_txt, c_rm = st.columns([0.85, 0.15])
+                # Handle both old (string) and new (dict) structures
+                is_node = isinstance(item, dict)
+                p_text = item["text"] if is_node else item
+                p_id = item["id"] if is_node else None
+
+                c_txt, c_btns = st.columns([0.7, 0.3])
                 with c_txt:
-                    st.markdown(f'<div class="pinned-box">{item}</div>', unsafe_allow_html=True)
-                with c_rm:
-                    if st.button("❌", key=f"unpin_{i}", help="Unpin this context"):
+                    st.markdown(f'<div class="pinned-box">{p_text}</div>', unsafe_allow_html=True)
+                with c_btns:
+                    if st.button("❌", key=f"unpin_{i}", help="Unpin", use_container_width=True):
                         st.session_state.pinned_context.pop(i)
                         st.rerun()
+                    if p_id:
+                        if st.button("✔", key=f"sel_p_{i}", help="Navigate to this node", use_container_width=True):
+                            navigate_to_node(tree, p_id)
+                            st.rerun()
 
             if st.button("Clear Context"):
                 st.session_state.pinned_context = []
@@ -372,9 +381,8 @@ def main():
                              child["summary"] = f"{title_text}: {body_text}"
                              
                              # 3. Pin & Navigate
-                             # Fix: Pin FULL text (Title + Body) not just Title
-                             full_critique_text = f"Critique: {title_text}\n{body_text}"
-                             st.session_state.pinned_context.append(full_critique_text)
+                             # Fix: Use Object structure for pin
+                             st.session_state.pinned_context.append({"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
                              
                              st.session_state.selected_paths.append(child_id)
                              # Note: We do NOT delete current_critiques here, so it stays visible as confirmation.
@@ -383,9 +391,8 @@ def main():
                              
                     with c_pin:
                         if st.button("📌 Pin", key=f"cp_{i}", use_container_width=True):
-                            # Fix: Pin FULL text here too
-                            full_critique_text = f"Critique: {title_text}\n{body_text}"
-                            st.session_state.pinned_context.append(full_critique_text)
+                            # Fix: Use Object structure for pin (id=None if not selected as node)
+                            st.session_state.pinned_context.append({"id": None, "text": f"**Critique: {title_text}**\n\n{body_text}"})
                             st.rerun()
                     with c_ign:
                         if st.button("🗑 Del", key=f"ci_{i}", use_container_width=True):
@@ -475,6 +482,10 @@ def main():
             if cid in st.session_state.banned_ideas:
                 continue
 
+            # ❌ Hide if already pinned
+            if any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.pinned_context):
+                continue
+
             text = tree["nodes"][cid]["summary"]
             if is_intro_like(text):
                 continue  # ❌ לא מציגים כ-path
@@ -549,7 +560,7 @@ def main():
                             st.session_state.selected_paths.append(cid)
                             
                             # Use FORMATED text for context
-                            st.session_state.pinned_context.append(formatted_text_for_pin)
+                            st.session_state.pinned_context.append({"id": cid, "text": formatted_text_for_pin})
                             
                             # --- Fix for Text Loss: Inherit Parent Content ---
                             # 1. Save the original "Idea" as the label for the Tree visualization
@@ -584,7 +595,7 @@ def main():
                     # 📌 PIN
                     with c_pin:
                         if st.button("📌 Pin", key=f"p_{cid}", help="Keep this idea as context", use_container_width=True):
-                            st.session_state.pinned_context.append(formatted_text_for_pin)
+                            st.session_state.pinned_context.append({"id": cid, "text": formatted_text_for_pin})
                             st.rerun()
 
                     # ✂️ PRUNE
