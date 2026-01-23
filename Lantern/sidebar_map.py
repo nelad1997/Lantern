@@ -1,6 +1,6 @@
 import streamlit as st
 import graphviz
-from tree import get_node, get_children, navigate_to_node
+from tree import get_node, get_children, navigate_to_node, init_tree
 
 def truncate(text, length=20):
     return text[:length] + "..." if len(text) > length else text
@@ -97,10 +97,11 @@ def render_sidebar_map(tree):
             
         label = f"{'🟣' if is_active else '⚪'} {truncate(nav_text, 25)}"
         if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Go back to: {nav_text}"):
-            # Auto-Pin logic
-            pinned_text = format_for_pin(node['summary'])
-            if pinned_text not in st.session_state.pinned_context:
-                st.session_state.pinned_context.append(pinned_text)
+            # Root Navigation = Reset Context
+            if node["type"] == "root":
+                st.session_state.pinned_context = []
+                st.session_state.selected_paths = []
+                st.session_state.banned_ideas = []
             
             navigate_to_node(tree, node['id'])
             st.rerun()
@@ -115,11 +116,6 @@ def render_sidebar_map(tree):
             st.sidebar.caption("Alternatives", help="Other ideas you explored at this step.")
             for sib in alternatives:
                 if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch to: {sib['summary']}"):
-                    # Auto-Pin logic
-                    pinned_text = format_for_pin(sib['summary'])
-                    if pinned_text not in st.session_state.pinned_context:
-                        st.session_state.pinned_context.append(pinned_text)
-
                     navigate_to_node(tree, sib['id'])
                     st.rerun()
 
@@ -146,7 +142,7 @@ def render_sidebar_map(tree):
         if n["id"] == current_id:
             current_idx = idx
             break
-
+ 
     target_node = st.sidebar.selectbox(
         "Select Node", 
         all_nodes_list, 
@@ -156,12 +152,29 @@ def render_sidebar_map(tree):
         help="Choose a node from the full list."
     )
     
-    if st.sidebar.button("Go", key="jump_btn", use_container_width=True, help="Navigate to the selected node and pin it."):
+    if st.sidebar.button("Go", key="jump_btn", use_container_width=True, help="Navigate to the selected node."):
          if target_node["id"] != current_id:
-             # Auto-Pin logic
-            pinned_text = format_for_pin(target_node['summary'])
-            if pinned_text not in st.session_state.pinned_context:
-                st.session_state.pinned_context.append(pinned_text)
+            # Root Navigation = Reset Context
+            if target_node["type"] == "root":
+                st.session_state.pinned_context = []
+                st.session_state.selected_paths = []
+                st.session_state.banned_ideas = []
             
             navigate_to_node(tree, target_node['id'])
             st.rerun()
+
+    # 4. Reset Tool
+    st.sidebar.divider()
+    st.sidebar.caption("Reset Workspace", help="Completely wipe the tree and context to start a new session.")
+    if st.sidebar.button("🗑️ Reset Full Tree", help="Permanently delete all branches and start a new session from scratch.", use_container_width=True):
+        st.session_state.tree = init_tree("")
+        st.session_state.pinned_context = []
+        st.session_state.selected_paths = []
+        st.session_state.banned_ideas = []
+        st.session_state.pop("current_critiques", None)
+        st.session_state.pop("comparison_data", None)
+        st.session_state.pop("last_refine_diff", None)
+        # Force editor to refresh (if using the versioning trick)
+        if "editor_version" in st.session_state:
+            st.session_state.editor_version += 1
+        st.rerun()
