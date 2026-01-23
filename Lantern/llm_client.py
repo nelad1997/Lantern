@@ -40,9 +40,9 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    # הגדרת המודל (שימוש ב-Flash 2.5 כפי שקיים אצלך)
+    # הגדרת המודל (שימוש ב-Flash 2.0)
     model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+        model_name="gemini-2.0-flash",
         safety_settings=safety_settings,
     )
 
@@ -71,6 +71,6 @@ def call_llm(prompt: str) -> str:
     """קריאה ישירה למודל עם פרומפט מוכן"""
     api_key = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     response = model.generate_content(prompt)
     return response.text.strip()
