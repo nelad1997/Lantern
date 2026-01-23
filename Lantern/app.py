@@ -7,6 +7,7 @@ import os
 import fitz  # PyMuPDF
 from docx import Document
 import io
+import html  # Added for safe text escaping
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
@@ -14,6 +15,16 @@ from tree import init_tree, get_current_node, navigate_to_node, get_node_short_l
 from controller import handle_event, generate_diff_html, apply_fuzzy_replacement
 from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
+
+# --- ReportLab Import Handling (Safe Import) ---
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import simpleSplit
+
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
 
 load_dotenv(override=True)
 
@@ -27,23 +38,73 @@ st.set_page_config(page_title="Lantern", layout="wide")
 # File Processing Helpers
 # -------------------------------------------------
 def extract_text_from_file(uploaded_file):
+    # Reset file pointer to beginning (Crucial for Streamlit)
+    uploaded_file.seek(0)
+
     file_type = uploaded_file.name.split('.')[-1].lower()
 
-    if file_type == 'pdf':
-        doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        return text
+    try:
+        if file_type == 'pdf':
+            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            return text
 
-    elif file_type == 'docx':
-        doc = Document(io.BytesIO(uploaded_file.read()))
-        return "\n".join([para.text for para in doc.paragraphs])
+        elif file_type == 'docx':
+            doc = Document(io.BytesIO(uploaded_file.read()))
+            return "\n".join([para.text for para in doc.paragraphs])
 
-    elif file_type in ['txt', 'md']:
-        return uploaded_file.getvalue().decode("utf-8")
+        elif file_type in ['txt', 'md']:
+            return uploaded_file.getvalue().decode("utf-8")
+
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
 
     return None
+
+
+# -------------------------------------------------
+# Export Helpers
+# -------------------------------------------------
+def create_docx(text):
+    doc = Document()
+    for paragraph in text.split('\n'):
+        if paragraph.strip():
+            doc.add_paragraph(paragraph)
+
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
+
+
+def create_pdf(text):
+    if not HAS_REPORTLAB:
+        return None
+
+    bio = io.BytesIO()
+    c = canvas.Canvas(bio, pagesize=letter)
+    width, height = letter
+
+    c.setFont("Helvetica", 12)
+
+    y = height - 50
+    margin = 50
+
+    for line in text.split('\n'):
+        wrapped_lines = simpleSplit(line, "Helvetica", 12, width - 2 * margin)
+        for wrapped_line in wrapped_lines:
+            if y < 50:
+                c.showPage()
+                c.setFont("Helvetica", 12)
+                y = height - 50
+            c.drawString(margin, y, wrapped_line)
+            y -= 15
+        y -= 5
+
+    c.save()
+    return bio.getvalue()
 
 
 # -------------------------------------------------
@@ -201,15 +262,18 @@ def main():
     # LEFT COLUMN: EDITOR
     # ==========================================
     with col_editor:
+        # Header (Cleaned up, removed Import/Export from here)
         if "comparison_data" in st.session_state:
             st.subheader("⚖️ Branch Comparison")
+        else:
+            st.subheader("Editor")
+
+        if "comparison_data" in st.session_state:
             comp = st.session_state.comparison_data
             diff_html = generate_diff_html(comp['a']['summary'], comp['b']['summary'])
             st.markdown(
                 f'<div style="background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; line-height: 1.6;">{diff_html}</div>',
                 unsafe_allow_html=True)
-        else:
-            st.subheader("Editor")
 
         st.markdown('<div class="action-bar"><div class="action-bar-title">AI Reasoning Actions</div>',
                     unsafe_allow_html=True)
@@ -240,7 +304,6 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
-        st.caption("✏️ Editing current reasoning node")
 
         if "html" not in current_node.get("metadata", {}) or not current_node["metadata"]["html"]:
             if current_node.get("summary"):
@@ -324,27 +387,72 @@ def main():
             st.markdown(
                 f'<div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 5px;"><img src="data:image/jpeg;base64,{logo_base64}" style="width: 70px; opacity: 0.9;"></div>',
                 unsafe_allow_html=True)
+
+        # --- NEW: Tooltip & System Explanation ---
+        st.markdown(
+            """
+            <div style="text-align: center; margin-bottom: 15px;">
+                <span title="Welcome to Lantern 💡&#10;What is Lantern?&#10;An intelligent environment for academic writing and reasoning. It combines a text editor with an AI assistant to facilitate in-depth research and thought management.&#10;How to use it?&#10;&#10;✍️ Write: Draft your initial ideas in the main text editor.&#10;🧠 Collaborate with AI:&#10;🌱 Expand: Explore new lines of reasoning and deepen your discussion.&#10;⚖️ Critique: Receive constructive feedback grounded in academic principles.&#10;✨ Refine: Polish your phrasing, precision, and style.&#10;🗺️ Navigate: Use the Thought Tree (sidebar) to manage various drafts and focus on specific sections of your work.&#10;📚 Enrich: Upload articles and documents to the Knowledge Base to ground the system's responses in your specific source material." style="cursor: help; color: #555; border-bottom: 1px dotted #777; font-size: 0.9em;">
+                    ℹ️ How to use Lantern
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # --- NEW: Import / Export Buttons Moved Here ---
+        c_io_1, c_io_2 = st.columns([1, 1])
+
+        with c_io_1:
+            with st.popover("📥 Import", use_container_width=True):
+                uploaded_doc = st.file_uploader("Upload DOCX/PDF to replace content", type=["pdf", "docx", "txt", "md"],
+                                                key="doc_import_right")
+                if uploaded_doc:
+                    file_ext = uploaded_doc.name.split('.')[-1].lower()
+                    if file_ext not in ['pdf', 'docx']:
+                        st.error("Error: File type not supported. Please upload a DOCX or PDF file.")
+                    else:
+                        if st.session_state.get("last_imported_doc") != uploaded_doc.name:
+                            doc_text = extract_text_from_file(uploaded_doc)
+                            if doc_text is not None:
+                                escaped_text = html.escape(doc_text)
+                                html_val = f"<p>{escaped_text.replace(chr(10), '<br>')}</p>"
+                                st.session_state["editor_html"] = html_val
+                                current_node.setdefault("metadata", {})["html"] = html_val
+                                st.session_state.editor_version += 1
+                                st.session_state["last_imported_doc"] = uploaded_doc.name
+                                st.rerun()
+
+        with c_io_2:
+            with st.popover("📤 Export", use_container_width=True):
+                export_text = current_node.get("metadata", {}).get("draft_plain", "")
+                if not export_text and "editor_html" in st.session_state:
+                    export_text = re.sub("<[^<]+?>", "", st.session_state["editor_html"]).strip()
+
+                st.download_button(
+                    label="📄 DOCX",
+                    data=create_docx(export_text),
+                    file_name="lantern_draft.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+
+                if HAS_REPORTLAB:
+                    st.download_button(
+                        label="📑 PDF",
+                        data=create_pdf(export_text),
+                        file_name="lantern_draft.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("Install 'reportlab' for PDF")
+
         st.markdown(
             f'<div class="status-pill {mode_class}" style="margin: 5px 0; width: 100%; text-align: center;">State: {mode_label}</div>',
             unsafe_allow_html=True)
         st.divider()
 
-        with st.expander("📚 Knowledge Base", expanded=False):
-            st.caption("Upload reference files (PDF, DOCX, TXT, MD) to provide more context.")
-            uploaded_files = st.file_uploader("Upload reference files", type=["txt", "md", "pdf", "docx"],
-                                              accept_multiple_files=True, key="kb_uploader")
-            if uploaded_files:
-                for f in uploaded_files:
-                    if f.name not in st.session_state.knowledge_base:
-                        extracted = extract_text_from_file(f)
-                        if extracted: st.session_state.knowledge_base[f.name] = extracted
-            if st.session_state.knowledge_base:
-                for fname in list(st.session_state.knowledge_base.keys()):
-                    c_f, c_d = st.columns([0.8, 0.2])
-                    c_f.text(f"📄 {fname}")
-                    if c_d.button("🗑️", key=f"del_{fname}"):
-                        del st.session_state.knowledge_base[fname];
-                        st.rerun()
 
         # 📌 Pinned Context Section (Scrollable)
         if st.session_state.tree["pinned_items"]:
@@ -365,12 +473,11 @@ def main():
 
         st.divider()
 
-        # 💡 Critique logic (FIXED: Tooltip + Format)
+        # 💡 Critique logic (FIXED: Tooltip + Icon + Format)
         if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
             st.subheader("💡 Critical Perspective")
 
             for i, item_data in enumerate(list(st.session_state["current_critiques"])):
-                # Ensure we handle both dict (new format) and old string format for safety
                 if isinstance(item_data, dict):
                     title = item_data.get("title", "Critique")
                     module = item_data.get("module", "Review")
@@ -381,26 +488,23 @@ def main():
                     text = item_data
 
                 with st.container(border=True):
-                    # Title with Tooltip (cursor: help)
+                    # ✅ FIXED: Title + Info Icon with Tooltip
                     st.markdown(
-                        f'<div title="{module}" style="cursor: help; margin-bottom: 5px;">'
-                        f'<b>{title}</b>'
-                        f'</div>',
+                        f'<b>{title}</b> '
+                        f'<span title="Academic Principle: {module}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
                         unsafe_allow_html=True
                     )
 
-                    # Body with scroll
                     st.markdown(
                         f"<div class='suggestion-text' style='max-height: 200px; overflow-y: auto;'>{text}</div>",
                         unsafe_allow_html=True)
 
-                    # Only PIN and DEL buttons
                     c_pin, c_del = st.columns([1, 1])
 
                     with c_pin:
                         if st.button("📌 Pin", key=f"cs_pin_{i}", use_container_width=True):
                             st.session_state.tree["pinned_items"].append({
-                                "id": None,  # Not a tree node
+                                "id": None,
                                 "title": title,
                                 "text": text,
                                 "type": "critique"
@@ -462,7 +566,13 @@ def main():
                     st.markdown(
                         f'<div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>From: {item["source"]}</span></div>',
                         unsafe_allow_html=True)
-                    st.markdown(f"**{title}**")
+
+                    # ✅ FIXED: Title + Info Icon with Tooltip
+                    st.markdown(
+                        f'<b>{title}</b> '
+                        f'<span title="Academic Principle: {module_tag}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
+                        unsafe_allow_html=True
+                    )
 
                     st.markdown(
                         f'''

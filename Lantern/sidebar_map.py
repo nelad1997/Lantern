@@ -9,17 +9,33 @@ def render_sidebar_map(tree):
     """
     Renders the vertical 'Thought Tree' in the sidebar.
     """
-    # תיקון נתיב ל-Windows אם צריך (אופציונלי, שומר למקרה הצורך)
+    # תיקון נתיב ל-Windows
     graphviz_path = r'C:\Program Files\Graphviz\bin'
     if os.path.exists(graphviz_path) and graphviz_path not in os.environ['PATH']:
         os.environ['PATH'] += os.pathsep + graphviz_path
 
     st.sidebar.subheader("🗺️ Thought Tree")
 
-    # מטריקות
+    # --- מנגנון Bulletproofed Persistent (מונה שלא מתאפס) ---
+    # יוצרים סט בהיסטוריה אם לא קיים
+    if "bulletproof_history" not in st.session_state:
+        st.session_state.bulletproof_history = set()
+
+    # עוברים על הפריטים הנעוצים כרגע ומוסיפים להיסטוריה
+    if "pinned_items" in st.session_state.tree:
+        for item in st.session_state.tree["pinned_items"]:
+            if isinstance(item, dict) and item.get("type") == "critique":
+                # משתמשים בטקסט כמזהה ייחודי כי לפעמים אין ID
+                unique_key = item.get("text", "")[:50]  # מספיק לקחת את ההתחלה לזיהוי
+                st.session_state.bulletproof_history.add(unique_key)
+
+    # המונה מבוסס על ההיסטוריה המצטברת
+    critiques_count = len(st.session_state.bulletproof_history)
+    # --------------------------------------------------------
+
+    # מטריקות נוספות
     total_nodes = len(tree["nodes"])
     paths_explored = max(0, total_nodes - 1)
-    critiques_count = sum(1 for n in tree["nodes"].values() if n.get("type") == "ai_critique")
 
     with st.sidebar.container(border=True):
         st.markdown("<small><b>🧠 Thinking Depth</b></small>", unsafe_allow_html=True)
@@ -29,13 +45,12 @@ def render_sidebar_map(tree):
 
     st.sidebar.markdown("<div style='margin-bottom:15px'></div>", unsafe_allow_html=True)
 
-    # סינון צמתים: מסירים צמתים חסומים וגם צמתים שנראים כמו באגים ("Idea" גנרי ללא מזהה ייחודי)
+    # סינון צמתים
     visible_nodes = []
     for nid in tree["nodes"]:
         if nid in st.session_state.get("banned_ideas", []):
             continue
         node = tree["nodes"][nid]
-        # הגנה נוספת מפני צמתים שבורים
         if node["summary"] == "Idea" and len(node.get("children", [])) == 0:
             continue
         visible_nodes.append(nid)
@@ -51,7 +66,7 @@ def render_sidebar_map(tree):
             # 1. שמירת עורך
             if "editor_html" in st.session_state:
                 st.session_state.tree["nodes"][current_id_in_callback].setdefault("metadata", {})["html"] = \
-                st.session_state["editor_html"]
+                    st.session_state["editor_html"]
                 st.session_state.tree["nodes"][current_id_in_callback]["metadata"][
                     "draft_plain"] = st.session_state.get("focused_text", "")
 
@@ -63,11 +78,9 @@ def render_sidebar_map(tree):
             st.session_state["editor_html"] = target_node.get("metadata", {}).get("html", "")
 
             # 4. נעיצה אוטומטית (Auto-Pin Logic)
-            # זה הפתרון לבקשה שלך: כשבוחרים צומת, הוא נפתח ב-PIN
             if target_node["type"] != "root":
                 meta = target_node.get("metadata", {})
                 title = meta.get("label", get_node_short_label(target_node))
-                # לוקחים את ההסבר המלא, או אם אין, את הסיכום
                 full_text = meta.get("explanation", target_node.get("summary", ""))
 
                 pin_obj = {
@@ -77,18 +90,11 @@ def render_sidebar_map(tree):
                     "type": "idea"
                 }
 
-                # בדיקה שזה לא כבר נעוץ
                 if not any(isinstance(item, dict) and item.get("id") == new_id for item in
                            st.session_state.tree["pinned_items"]):
                     st.session_state.tree["pinned_items"].append(pin_obj)
 
-            # שמירה לקובץ
-            AUTOSAVE_FILE = "lantern_autosave.json"
-            try:
-                with open(AUTOSAVE_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(st.session_state.tree, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                print(f"Auto-save error: {e}")
+            # השמירה האוטומטית בוטלה כאן
 
     # מציאת האינדקס
     try:
@@ -127,10 +133,8 @@ def render_sidebar_map(tree):
 
         label_text = node.get("metadata", {}).get("label", get_node_short_label(node))
 
-        # סינון נוסף ויזואלי אם עדיין יש "Idea"
         if label_text == "Idea": label_text = "New Path"
 
-        # שבירת שורות
         import textwrap
         wrapped = "\n".join(textwrap.wrap(label_text, width=20))
         label = f"⚖️\n{wrapped}" if node.get("type") == "ai_critique" else wrapped
@@ -150,3 +154,20 @@ def render_sidebar_map(tree):
             unsafe_allow_html=True)
     except:
         st.sidebar.graphviz_chart(graph, use_container_width=True)
+
+    # כפתור איפוס
+    st.sidebar.divider()
+    st.sidebar.caption("Reset Workspace")
+    if st.sidebar.button("🗑️ Reset Full Tree", help="Delete all branches and context.", use_container_width=True):
+        st.session_state.tree = {"nodes": {}, "current": ""}
+        st.session_state.clear()
+        # איפוס גם להיסטוריית הביקורות
+        if "bulletproof_history" in st.session_state:
+            del st.session_state["bulletproof_history"]
+
+        if os.path.exists("lantern_autosave.json"):
+            try:
+                os.remove("lantern_autosave.json")
+            except:
+                pass
+        st.rerun()
