@@ -284,21 +284,61 @@ def main():
              if current_node.get("summary"):
                  current_node.setdefault("metadata", {})["html"] = f"<p>{current_node['summary'].replace(chr(10), '<br>')}</p>"
 
-        html_content = st_quill(
-            value=st.session_state["editor_html"],
-            placeholder="Start drafting your thoughts here...",
-            html=True,
-            toolbar=[
-                ["bold", "italic", "underline", "strike"],
-                [{"header": [1, 2, 3, False]}],
-                [{"list": "ordered"}, {"list": "bullet"}],
-                ["link", "image", "blockquote", "code-block"],
-                ["clean"],
-            ],
-            key=f"quill_main_{st.session_state.editor_version}",
-        )
+        if "last_refine_diff" in st.session_state:
+             # --- Review Mode (Refine) ---
+             st.info("✨ AI Suggested Improvements (Review Mode)")
+             
+             # Show Diff
+             st.markdown(
+                 f'<div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem; line-height: 1.6; color: #334155; margin-bottom: 10px;">{st.session_state["last_refine_diff"]}</div>',
+                 unsafe_allow_html=True
+             )
+             
+             c_accept, c_discard = st.columns([1, 1])
+             with c_accept:
+                 if st.button("✅ Accept Changes", use_container_width=True, type="primary"):
+                     # Apply changes
+                     new_text = st.session_state["last_refine_text"]
+                     st.session_state["editor_html"] = new_text
+                     current_node.setdefault("metadata", {})["html"] = new_text
+                     
+                     # Clean up
+                     del st.session_state["last_refine_diff"]
+                     del st.session_state["last_refine_text"]
+                     st.session_state.pop("last_refine_original_target", None)
+                     
+                     save_autosave(st.session_state.tree)
+                     st.rerun()
+                     
+             with c_discard:
+                 if st.button("❌ Discard", use_container_width=True):
+                     # Clean up
+                     del st.session_state["last_refine_diff"]
+                     del st.session_state["last_refine_text"]
+                     st.session_state.pop("last_refine_original_target", None)
+                     st.rerun()
+                     
+             # Placeholder to keep UI stable
+             html_content = st.session_state["editor_html"]
+
+        else:
+            # --- Standard Editor Mode ---
+            html_content = st_quill(
+                value=st.session_state["editor_html"],
+                placeholder="Start drafting your thoughts here...",
+                html=True,
+                toolbar=[
+                    ["bold", "italic", "underline", "strike"],
+                    [{"header": [1, 2, 3, False]}],
+                    [{"list": "ordered"}, {"list": "bullet"}],
+                    ["link", "image", "blockquote", "code-block"],
+                    ["clean"],
+                ],
+                key=f"quill_main_{st.session_state.editor_version}",
+            )
 
         blocks_data = []
+        plain_text = ""  # Initialize to prevent UnboundLocalError
         if html_content:
             # Update the persistent editor state
             st.session_state["editor_html"] = html_content
@@ -590,14 +630,7 @@ def main():
                                 st.rerun()
             st.divider()
 
-        # ✨ Refined Changes (Full Text / Block Diff)
-        if "last_refine_diff" in st.session_state:
-            st.subheader("✨ Refined Suggestion")
-            
-            # Show Diff
-            st.markdown(
-                f'<div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem;">{st.session_state["last_refine_diff"]}</div>',
-                unsafe_allow_html=True)
+        # (Old Refine UI removed - now handled in Editor Review Mode)
             
             st.caption("Review and edit the suggestion below before applying:")
             

@@ -1,17 +1,18 @@
 from definitions import ActionType
 
 
-def build_prompt(action: ActionType, focus: str) -> str:
+def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
     """
     Builds a prompt for the LLM based on the requested action.
-    The 'focus' variable contains both the user's draft and the
-    Academic Writing Principles injected by the controller.
+    'focus' is the Input Text. 'instructions' are system constraints.
     """
 
     # -------------------------------------------------
     # DIVERGE — EXPLORE Mode (Thematic Perspectives)
     # -------------------------------------------------
     if action == ActionType.DIVERGE:
+        # For Diverge, we keep the previous format for now (concatenated) 
+        # as it works well with the "Perspectives" logic.
         return (
             "You are a world-class academic mentor. Your task is to suggest "
             "new directions to develop the author's argument.\n"
@@ -38,7 +39,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "- Do NOT explain what you are about to do.\n"
             "- Return ONLY the 3 perspectives in the specified format.\n\n"
 
-            f"Input & Principles:\n{focus}"
+            f"Input & Principles:\n{focus}\n{instructions}"
         )
 
     # -------------------------------------------------
@@ -51,17 +52,19 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "the core arguments or adding new ideas.\n"
             "MODE: REFINE (Polish & Clarity)\n\n"
 
-            "INSTRUCTIONS:\n"
+            "--- SYSTEM INSTRUCTIONS ---\n"
+            f"{instructions}\n"
             "1. Improve sentence structure and academic tone.\n"
             "2. Fix ambiguities and ensure smooth transitions.\n"
             "3. Keep the original meaning and arguments intact.\n\n"
 
-            "Output Rules:\n"
+            "--- OUTPUT RULES ---\n"
             "- Return ONLY the refined text.\n"
             "- Do NOT include any introductory or concluding text.\n"
             "- Respond in the same language as the input text.\n\n"
 
-            f"Input:\n{focus}"
+            "--- INPUT TEXT TO REFINE ---\n"
+            f"{focus}"
         )
 
     # -------------------------------------------------

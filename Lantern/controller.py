@@ -176,8 +176,21 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         constraints.append("The user has just started. Suggest 3 distinct academic perspectives or research directions to begin the inquiry.")
 
     # 2. שליחה ל-LLM
-    full_focus_text = base_focus + ("\n\n[SYSTEM CONSTRAINTS]:\n" + "\n".join(constraints) if constraints else "")
-    prompt = build_prompt(action, full_focus_text)
+    # ------------------------------------------------------------------
+    # 2. שליחה ל-LLM (עם הפרדה ל-REFINE)
+    # ------------------------------------------------------------------
+    constraints_str = "\n".join(constraints) if constraints else ""
+
+    if action == ActionType.REFINE:
+        # Strict Separation: Text vs Instructions
+        prompt = build_prompt(action, base_focus, instructions=constraints_str)
+    else:
+        # Legacy/Diverge: Append constraints to focus (as expected by prompt_builder DIVERGE block)
+        full_focus_text = base_focus
+        # Note: DIVERGE in prompt_builder now appends {instructions} at the end, 
+        # so we pass base_focus as text and constraints as instructions.
+        prompt = build_prompt(action, full_focus_text, instructions=constraints_str)
+
     llm_output = call_llm(prompt)
 
     # 3. עיבוד תוצאה לפי סוג פעולה (הפרדה לשינויים ויזואליים)
