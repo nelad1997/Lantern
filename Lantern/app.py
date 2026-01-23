@@ -252,7 +252,7 @@ def main():
                 st.rerun()
 
         with c2:
-            if st.button("⚖️ Critique", help="Challenge arguments and find weaknesses", use_container_width=True):
+            if st.button("⚖️ Critique", help="Bulletproof your argument. Challenge assumptions to strengthen against peer review.", use_container_width=True):
                 st.session_state.pending_action = {
                     "action": ActionType.CRITIQUE,
                     "user_text": st.session_state["focused_text"],
@@ -578,11 +578,15 @@ def main():
                             except:
                                 pass
                         
-                        # Meta
+                        # Module Tag
+                        module_tag = tree["nodes"][critique_id]["metadata"].get("module", "") if critique_id else ""
+                        module_html = f"<span>🧩 {module_tag}</span>" if module_tag else ""
+                        
                         st.markdown(
                             f'''
                             <div class="suggestion-meta">
                                 <span>⚖️ Critique</span>
+                                {module_html}
                                 <span>AI Generated</span>
                             </div>
                             ''',
@@ -750,11 +754,14 @@ def main():
                 child = tree["nodes"][cid]
                 
                 with st.container(border=True):
-                    # Meta + Text
+                    module_tag = child.get("metadata", {}).get("module", "")
+                    module_html = f"<span>🧩 {module_tag}</span>" if module_tag else ""
+                    
                     st.markdown(
                         f'''
                         <div class="suggestion-meta">
                             <span>🤖 {child.get("type", "Idea")}</span>
+                            {module_html}
                             <span>From: {source_label}</span>
                         </div>
                         ''',
@@ -918,6 +925,15 @@ def main():
             st.session_state.pending_action = None
             st.session_state.is_thinking = False
             save_autosave(st.session_state.tree)
+            
+            # 🔔 Value Feedback: Motivational Toasts
+            if payload["action"] == ActionType.DIVERGE:
+                st.toast("🌱 New perspectives explored. Think about which lens fits best!")
+            elif payload["action"] == ActionType.CRITIQUE:
+                st.toast("⚖️ Argument bulletproofed. Check the critical feedback to strengthen your logic.")
+            elif payload["action"] == ActionType.REFINE:
+                st.toast("✨ Clarity improved. Review and accept the changes.")
+                
             st.rerun()
 
 

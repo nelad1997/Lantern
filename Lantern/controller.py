@@ -206,16 +206,30 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                  
             # Extract title for summary
             summary = opt
+            module_name = None
             if "Title:" in opt:
                 try:
-                    parts = opt.replace("Title:", "").split("Critique:", 1)
-                    title = parts[0].strip(" *")
+                    # Logic improved to handle optional Module tag
+                    if "Module:" in opt:
+                        title = opt.split("Title:", 1)[1].split("Module:", 1)[0].strip(" *")
+                    else:
+                        title = opt.split("Title:", 1)[1].split("Critique:", 1)[0].strip(" *")
                     summary = title
                 except:
                     pass
             
+            if "Module:" in opt:
+                try:
+                    module_name = opt.split("Module:", 1)[1].split("\n")[0].strip()
+                except:
+                    pass
+
             # Add child node
-            cid = add_child(tree, anchor_id, opt, node_type="ai_critique", metadata={"label": summary, "idea_text": opt})
+            meta = {"label": summary, "idea_text": opt}
+            if module_name:
+                meta["module"] = module_name
+
+            cid = add_child(tree, anchor_id, opt, node_type="ai_critique", metadata=meta)
             critique_nodes.append({"id": cid, "text": opt})
             
         return {"mode": "critique", "items": critique_nodes}
@@ -238,18 +252,29 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             label = None
             if "Title:" in option:
                 try:
-                    parts = option.split("Explanation:", 1)[0]
-                    label = parts.replace("Title:", "").strip(" *")
+                    if "Module:" in option:
+                        label = option.split("Title:", 1)[1].split("Module:", 1)[0].strip(" *")
+                    else:
+                        label = option.split("Title:", 1)[1].split("Explanation:", 1)[0].strip(" *")
                 except:
                    pass
             
             # Store full idea text for Pinning Context (Critical Fix)
+            module_name = None
+            if "Module:" in option:
+                try:
+                    module_name = option.split("Module:", 1)[1].split("\n")[0].strip()
+                except:
+                    pass
+
             meta = {"idea_text": option}
             if label:
                 meta["label"] = label
+            if module_name:
+                meta["module"] = module_name
                 
             add_child(tree, anchor_id, option, metadata=meta)
-            
+        
         return {"mode": "options", "options": options}
 
     return {"status": "error", "message": "Unknown action"}

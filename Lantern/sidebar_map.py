@@ -6,10 +6,22 @@ def render_sidebar_map(tree):
     """
     Renders the vertical 'Thought Tree' in the sidebar.
     """
-    # 1. Graphviz Visualization
     st.sidebar.subheader("🗺️ Thought Tree")
     
-    # --- Interactive Navigation (Selectbox) ---
+    # --- Value Feedback: Thinking Metrics ---
+    total_nodes = len(tree["nodes"])
+    paths_explored = max(0, total_nodes - 1)
+    critiques_count = sum(1 for n in tree["nodes"].values() if n.get("type") == "ai_critique")
+    
+    with st.sidebar.container(border=True):
+        st.markdown("<small><b>🧠 Thinking Depth</b></small>", unsafe_allow_html=True)
+        c_p, c_c = st.columns(2)
+        c_p.caption(f"🌱 Paths: {paths_explored}")
+        c_c.caption(f"⚖️ Bulletproofed: {critiques_count}")
+    
+    st.sidebar.markdown("<div style='margin-bottom:15px'></div>", unsafe_allow_html=True)
+    
+    # --- Interactive Navigation ---
     # Solution for "Interactive Selection without URLs/Reloads"
     
     # Helper to get visible nodes
@@ -74,12 +86,13 @@ def render_sidebar_map(tree):
         current_index = 0
 
     st.sidebar.selectbox(
-        "Jump to Node:",
+        "🎯 Select Active Node (Focus):",
         options=visible_nodes,
         format_func=lambda nid: get_node_short_label(tree["nodes"][nid]),
         index=current_index,
         key="nav_selection_box",
-        on_change=handle_navigation
+        on_change=handle_navigation,
+        help="Use this to pivot your view and work on a different branch of the tree."
     )
 
     graph = graphviz.Digraph()

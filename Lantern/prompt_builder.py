@@ -28,6 +28,7 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "Output Format (STRICT):\n"
             "For each of the 3 selected perspectives:\n"
             "Title: <A short, concrete, and highly descriptive name for the lens - avoid generic names>\n"
+            "Module: <The specific academic principle applied (e.g. Synthesis, Empirical Analysis)>\n"
             "Explanation: <Rich explanation (MAX 100 WORDS) of how this lens applies.>\n\n"
 
             "Rules:\n"
@@ -86,6 +87,7 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "- If there are critiques, provide UP TO 3 short and direct blocks.\n"
             "- Output Format (STRICT) per block:\n"
             "Title: <Short 3-5 word title for the issue>\n"
+            "Module: <The academic principle applied (e.g. Logical Rigor, Evidence)>\n"
             "Critique: <The concise critique content>\n"
             "- Separate blocks with a double newline.\n"
             "- Respond in the same language as the input text.\n"
