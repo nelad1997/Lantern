@@ -170,6 +170,9 @@ def main():
                  navigate_to_node(tree, current_node["parent"])
                  st.rerun()
         
+        if "editor_html" not in st.session_state:
+            st.session_state["editor_html"] = current_node.get("metadata", {}).get("html", "")
+
         st.session_state.setdefault("focused_text", current_node.get("summary", ""))
 
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
@@ -217,7 +220,7 @@ def main():
                  current_node.setdefault("metadata", {})["html"] = f"<p>{current_node['summary'].replace(chr(10), '<br>')}</p>"
 
         html_content = st_quill(
-            value=current_node.get("metadata", {}).get("html", ""),
+            value=st.session_state["editor_html"],
             placeholder="Start drafting your thoughts here...",
             html=True,
             toolbar=[
@@ -225,11 +228,13 @@ def main():
                 [{"header": [1, 2, 3, False]}],
                 [{"list": "ordered"}, {"list": "bullet"}],
             ],
-            key=f"quill_{current_node['id']}_{st.session_state.editor_version}",
+            key=f"quill_main_{st.session_state.editor_version}",
         )
 
         blocks_data = []
         if html_content is not None:
+            st.session_state["editor_html"] = html_content
+            # Optionally keep the current node synced if it's the main path
             current_node.setdefault("metadata", {})["html"] = html_content
             
             # --- Better HTML Parsing (Preserve Paragraphs & Headers) ---
@@ -364,31 +369,29 @@ def main():
                 
                 # Show Select button BELOW the box if it's not the current node
                 if p_id != tree["current"]:
-                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Transform this idea into your main path", use_container_width=True):
-                        target_id = p_id
-                        
-                        # If it doesn't have an ID, create a node now
-                        if not target_id:
-                            from tree import add_child
-                            clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
-                            target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
+                    c_s1, c_s2 = st.columns([1, 1])
+                    with c_s1:
+                        if st.button("✔ Focus AI", key=f"sel_p_{i}", help="Direct AI's focus to this idea", use_container_width=True):
+                            target_id = p_id
+                            if not target_id:
+                                from tree import add_child
+                                clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
+                                target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
+                                tree["nodes"][target_id].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
+                                st.session_state.pinned_context[i]["id"] = target_id
                             
-                            parent_html = current_node.get("metadata", {}).get("html", "")
-                            if not parent_html and current_node["summary"]:
-                                parent_html = f"<p>{current_node['summary']}</p>"
-                            tree["nodes"][target_id].setdefault("metadata", {})["html"] = parent_html
-                            
-                            # Link the newly created ID to this pin so it's "not selectable" anymore
-                            st.session_state.pinned_context[i]["id"] = target_id
-                        
-                        # Navigate (Keep pins, but maybe update selected_paths)
-                        # We don't clear pinned_context anymore to fulfill "I want the pin to stay"
-                        st.session_state.selected_paths = [target_id]
-                        
-                        navigate_to_node(tree, target_id)
-                        if "editor_version" in st.session_state:
-                            st.session_state.editor_version += 1
-                        st.rerun()
+                            st.session_state.selected_paths = [target_id]
+                            navigate_to_node(tree, target_id)
+                            st.rerun()
+                    
+                    with c_s2:
+                        if p_id: # Only show restore for identified nodes
+                            if st.button("⏪ Restore Text", key=f"res_p_{i}", help="OVERWRITE current editor with this historical version", use_container_width=True):
+                                node_to_restore = tree["nodes"][p_id]
+                                st.session_state["editor_html"] = node_to_restore.get("metadata", {}).get("html", "")
+                                if "editor_version" in st.session_state:
+                                    st.session_state.editor_version += 1
+                                st.rerun()
 
             if st.button("Clear all context", help="Wipe all pinned items"):
                 st.session_state.pinned_context = []

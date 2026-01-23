@@ -88,6 +88,7 @@ def render_sidebar_map(tree):
         st.session_state.pop("current_critiques", None)
         st.session_state.pop("comparison_data", None)
         st.session_state.pop("last_refine_diff", None)
+        st.session_state.pop("editor_html", None)
         # Force editor to refresh (if using the versioning trick)
         if "editor_version" in st.session_state:
             st.session_state.editor_version += 1
@@ -127,15 +128,13 @@ def render_sidebar_map(tree):
         clean_tooltip = node_summary[:100] + "..." if len(node_summary) > 100 else node_summary
         
         if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Return to: {clean_tooltip}"):
-            # Root Navigation = Reset Context
-            if node["type"] == "root":
-                st.session_state.pinned_context = []
-                st.session_state.selected_paths = []
-                st.session_state.banned_ideas = []
+            # Auto-Pin this node for context
+            node_id = node['id']
+            if not any(item.get("id") == node_id for item in st.session_state.pinned_context):
+                st.session_state.pinned_context.append({"id": node_id, "text": node["summary"]})
             
-            navigate_to_node(tree, node['id'])
-            if "editor_version" in st.session_state:
-                st.session_state.editor_version += 1
+            navigate_to_node(tree, node_id)
+            # NO editor_version increment here - keep the current text!
             st.rerun()
 
     # Show Siblings (Alternatives)
@@ -147,10 +146,13 @@ def render_sidebar_map(tree):
         if alternatives:
             st.sidebar.caption("Alternatives", help="Other ideas you explored at this step.")
             for sib in alternatives:
-                if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch to: {sib['summary']}"):
-                    navigate_to_node(tree, sib['id'])
-                    if "editor_version" in st.session_state:
-                        st.session_state.editor_version += 1
+                if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch AI focus to: {sib['summary']}"):
+                    # Auto-Pin Alternative
+                    sib_id = sib['id']
+                    if not any(item.get("id") == sib_id for item in st.session_state.pinned_context):
+                        st.session_state.pinned_context.append({"id": sib_id, "text": sib["summary"]})
+                    
+                    navigate_to_node(tree, sib_id)
                     st.rerun()
 
     # 3. Direct Jump (Dropdown)
@@ -188,13 +190,10 @@ def render_sidebar_map(tree):
     
     if st.sidebar.button("Go", key="jump_btn", use_container_width=True, help="Navigate to the selected node."):
          if target_node["id"] != current_id:
-            # Root Navigation = Reset Context
-            if target_node["type"] == "root":
-                st.session_state.pinned_context = []
-                st.session_state.selected_paths = []
-                st.session_state.banned_ideas = []
-            
-            navigate_to_node(tree, target_node['id'])
-            if "editor_version" in st.session_state:
-                st.session_state.editor_version += 1
+            # Auto-Pin Dropdown selection
+            t_id = target_node['id']
+            if not any(item.get("id") == t_id for item in st.session_state.pinned_context):
+                st.session_state.pinned_context.append({"id": t_id, "text": target_node["summary"]})
+                
+            navigate_to_node(tree, t_id)
             st.rerun()
