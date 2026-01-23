@@ -344,7 +344,6 @@ def main():
                 """
             )
         
-        st.markdown(f'<div class="status-pill {mode_class}" style="margin: 5px 0;">State: {mode_label}</div>', unsafe_allow_html=True)
 
         # 📌 Pinned Context Section
         if st.session_state.pinned_context:
