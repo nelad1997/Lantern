@@ -130,6 +130,8 @@ def main():
         st.session_state.selected_paths = []
     if "editor_version" not in st.session_state:
         st.session_state.editor_version = 0
+    if "knowledge_base" not in st.session_state:
+        st.session_state.knowledge_base = {}
 
 
     tree = st.session_state.tree
@@ -261,17 +263,7 @@ def main():
     # ==========================================
     # SIDEBAR TOOLS
     # ==========================================
-    with st.sidebar:
-        st.markdown("### 💾 Project Management")
-        st.download_button("📥 Export Project (JSON)", data=save_project(tree), file_name="lantern_project.json",
-                           mime="application/json")
-        uploaded_file = st.file_uploader("📤 Load Project", type="json")
-        if uploaded_file:
-            if load_project(uploaded_file.getvalue().decode("utf-8")):
-                st.success("Loaded!");
-                st.rerun()
-        st.divider()
-
+    # --- Map Tree (Stays in sidebar) ---
     render_sidebar_map(tree)
     
     with st.sidebar.expander("⚖️ Compare Branches", expanded=False):
@@ -296,11 +288,45 @@ def main():
         # --- Branding (Logo + Guide + Status) ---
         if logo_base64:
             st.markdown(
-                f'<div style="display: flex; flex-direction: column; align-items: center; margin-top: -30px; margin-bottom: 5px;">'
+                f'<div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 5px;">'
                 f'<img src="data:image/jpeg;base64,{logo_base64}" style="width: 70px; opacity: 0.9;"></div>',
                 unsafe_allow_html=True
             )
         
+        st.markdown(f'<div class="status-pill {mode_class}" style="margin: 5px 0; width: 100%; text-align: center;">State: {mode_label}</div>', unsafe_allow_html=True)
+        st.divider()
+
+        # --- Project Management ---
+        with st.expander("📁 Project Management", expanded=False):
+            st.download_button("📥 Export Project (JSON)", data=save_project(tree), file_name="lantern_project.json",
+                               mime="application/json", use_container_width=True)
+            uploaded_proj = st.file_uploader("📤 Load Project", type="json", key="proj_loader")
+            if uploaded_proj:
+                if load_project(uploaded_proj.getvalue().decode("utf-8")):
+                    st.success("Loaded!");
+                    st.rerun()
+
+        # --- Knowledge Base (New File Upload) ---
+        with st.expander("📚 Knowledge Base", expanded=False):
+            st.caption("Upload reference files (txt, md) to provide more context to the AI.")
+            uploaded_files = st.file_uploader("Upload reference files", type=["txt", "md"], accept_multiple_files=True, key="kb_uploader")
+            
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    if uploaded_file.name not in st.session_state.knowledge_base:
+                        st.session_state.knowledge_base[uploaded_file.name] = uploaded_file.getvalue().decode("utf-8")
+                
+                # Show active files
+                if st.session_state.knowledge_base:
+                    st.markdown("**Active Files:**")
+                    for fname in list(st.session_state.knowledge_base.keys()):
+                        col_f, col_d = st.columns([0.8, 0.2])
+                        col_f.text(f"📄 {fname}")
+                        if col_d.button("🗑️", key=f"del_{fname}"):
+                            del st.session_state.knowledge_base[fname]
+                            st.rerun()
+
+        # --- About Lantern ---
         with st.expander("ℹ️ About Lantern", expanded=False):
             st.markdown(
                 """
@@ -649,6 +675,7 @@ def main():
                     "pinned_context": st.session_state.pinned_context,
                     "banned_ideas": st.session_state.banned_ideas,
                     "user_text": payload["user_text"],
+                    "knowledge_base": st.session_state.get("knowledge_base", {}),
                 }
             )
 

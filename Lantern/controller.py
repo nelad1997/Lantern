@@ -143,6 +143,11 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         if banned_texts:
             constraints.append(f"Do NOT suggest:\n- " + "\n- ".join(banned_texts))
 
+    knowledge_base = event_context.get("knowledge_base", {})
+    if knowledge_base:
+        kb_text = "\n\n".join([f"--- FILE: {name} ---\n{content}" for name, content in knowledge_base.items()])
+        constraints.append(f"### REFERENCE KNOWLEDGE BASE ###\nUse the following reference material to improve your suggestions and critique:\n{kb_text}")
+
     # --- Stronger Deduplication (Check existing siblings) ---
     if action == ActionType.DIVERGE:
         current_node = tree["nodes"][anchor_id]
