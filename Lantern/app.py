@@ -105,6 +105,21 @@ def get_ui_state(tree):
     if "last_perspective" in st.session_state:
         return "Reflecting", "status-reflect"
     current_node = get_current_node(tree)
+    
+    # Map node type to status labels
+    type_map = {
+        "root": ("Drafting", "status-ready"),
+        "user": ("Drafting", "status-ready"),
+        "ai_diverge": ("Exploring", "status-explore"),
+        "ai_critique": ("Reflecting", "status-reflect"),
+        "refine": ("Polishing", "status-ready"),
+        "critique": ("Reflecting", "status-reflect")
+    }
+    
+    node_type = current_node.get("type", "standard")
+    if node_type in type_map:
+        return type_map[node_type]
+
     has_valid_children = any(cid not in st.session_state.banned_ideas for cid in current_node["children"])
     if has_valid_children:
         return "Exploring", "status-explore"
@@ -244,9 +259,11 @@ def main():
             placeholder="Start drafting your thoughts here...",
             html=True,
             toolbar=[
-                ["bold", "italic", "underline"],
+                ["bold", "italic", "underline", "strike"],
                 [{"header": [1, 2, 3, False]}],
                 [{"list": "ordered"}, {"list": "bullet"}],
+                ["link", "image", "blockquote", "code-block"],
+                ["clean"],
             ],
             key=f"quill_main_{st.session_state.editor_version}",
         )
