@@ -363,29 +363,28 @@ def main():
                         st.rerun()
                 
                 # Show Select button BELOW the box if it's not the current node
-                # (either it has a different ID, or it has no ID at all because it was just pinned)
                 if p_id != tree["current"]:
-                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Transform this idea into your main path and clear other context", use_container_width=True):
+                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Transform this idea into your main path", use_container_width=True):
                         target_id = p_id
                         
                         # If it doesn't have an ID, create a node now
                         if not target_id:
                             from tree import add_child
-                            # Simple parsing for pinned critiques/suggestions
                             clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
                             target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
                             
-                            # Inherit HTML
                             parent_html = current_node.get("metadata", {}).get("html", "")
                             if not parent_html and current_node["summary"]:
                                 parent_html = f"<p>{current_node['summary']}</p>"
                             tree["nodes"][target_id].setdefault("metadata", {})["html"] = parent_html
+                            
+                            # Link the newly created ID to this pin so it's "not selectable" anymore
+                            st.session_state.pinned_context[i]["id"] = target_id
                         
-                        # Clear context on select as requested
-                        st.session_state.pinned_context = []
-                        st.session_state.selected_paths = []
+                        # Navigate (Keep pins, but maybe update selected_paths)
+                        # We don't clear pinned_context anymore to fulfill "I want the pin to stay"
+                        st.session_state.selected_paths = [target_id]
                         
-                        # Navigate
                         navigate_to_node(tree, target_id)
                         if "editor_version" in st.session_state:
                             st.session_state.editor_version += 1
@@ -462,9 +461,9 @@ def main():
                                 child["metadata"]["label"] = title_text 
                                 child["summary"] = f"{title_text}: {body_text}"
                                 
-                                # 3. Pin & Navigate (CLEAR OLD PINS as requested)
-                                st.session_state.pinned_context = [{"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"}]
-                                st.session_state.selected_paths = [child_id]
+                                # 3. Pin & Navigate (Preseve context as requested)
+                                st.session_state.pinned_context.append({"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
+                                st.session_state.selected_paths.append(child_id)
                                 
                                 # 4. REMOVE from list so it disappears
                                 st.session_state["current_critiques"].pop(i)
