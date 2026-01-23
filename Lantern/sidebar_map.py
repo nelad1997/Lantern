@@ -111,13 +111,22 @@ def render_sidebar_map(tree):
     for node in path:
         is_active = (node["id"] == current_id)
         
-        # Handle empty summaries (e.g. root)
-        nav_text = node['summary']
-        if not nav_text or not nav_text.strip():
-            nav_text = "Start" if node["type"] == "root" else "Untitled Idea"
+        # Determine the label: Use descriptive label if available, otherwise truncate summary
+        label_text = node.get("metadata", {}).get("label")
+        if not label_text:
+            nav_text = node['summary']
+            if not nav_text or not nav_text.strip():
+                nav_text = "Start" if node["type"] == "root" else "Untitled Idea"
+            label_text = truncate(nav_text, 25)
             
-        label = f"{'🟣' if is_active else '⚪'} {truncate(nav_text, 25)}"
-        if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Go back to: {nav_text}"):
+        label = f"{'🟣' if is_active else '⚪'} {label_text}"
+        
+        # Concise Tooltip: Summarize the idea instead of showing full raw text
+        # If it's a long text, we skip the middle part for the tooltip or use a "General Explanation"
+        node_summary = node.get("summary", "")
+        clean_tooltip = node_summary[:100] + "..." if len(node_summary) > 100 else node_summary
+        
+        if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Return to: {clean_tooltip}"):
             # Root Navigation = Reset Context
             if node["type"] == "root":
                 st.session_state.pinned_context = []
@@ -125,6 +134,8 @@ def render_sidebar_map(tree):
                 st.session_state.banned_ideas = []
             
             navigate_to_node(tree, node['id'])
+            if "editor_version" in st.session_state:
+                st.session_state.editor_version += 1
             st.rerun()
 
     # Show Siblings (Alternatives)
@@ -138,6 +149,8 @@ def render_sidebar_map(tree):
             for sib in alternatives:
                 if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch to: {sib['summary']}"):
                     navigate_to_node(tree, sib['id'])
+                    if "editor_version" in st.session_state:
+                        st.session_state.editor_version += 1
                     st.rerun()
 
     # 3. Direct Jump (Dropdown)
@@ -182,7 +195,6 @@ def render_sidebar_map(tree):
                 st.session_state.banned_ideas = []
             
             navigate_to_node(tree, target_node['id'])
-            st.rerun()
-
-            navigate_to_node(tree, target_node['id'])
+            if "editor_version" in st.session_state:
+                st.session_state.editor_version += 1
             st.rerun()

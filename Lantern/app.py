@@ -370,6 +370,8 @@ def main():
                         st.session_state.selected_paths = []
                         # Navigate
                         navigate_to_node(tree, p_id)
+                        if "editor_version" in st.session_state:
+                            st.session_state.editor_version += 1
                         st.rerun()
 
             if st.button("Clear Context"):
@@ -383,83 +385,88 @@ def main():
         # 💡 Critique Result (OUTSIDE Pinned Context Block)
         if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
             st.subheader("💡 Critical Perspective")
-            if st.button("Dismiss"):
-                del st.session_state["current_critiques"]
-                st.rerun()
+            
+            # Special case for "No Critique"
+            if st.session_state["current_critiques"][0] == "NO_CRITIQUE_NEEDED":
+                st.info("✨ Lantern finds your current draft rigorous and logically sound. No critical gaps identified.")
+                if st.button("Dismiss", key="dismiss_none"):
+                    del st.session_state["current_critiques"]
+                    st.rerun()
+            else:
+                if st.button("Dismiss All", help="Clear all suggestions"):
+                    del st.session_state["current_critiques"]
+                    st.rerun()
 
-            for i, item in enumerate(st.session_state["current_critiques"]):
-                 # Limit to 1 critique (though prompt should enforce it, list might be 1)
-                 if i > 0: break 
-                 
-                 with st.container(border=True):
-                    # Parse Title vs Content
-                    title_text = "Critical Perspective"
-                    body_text = item
-                    
-                    if "Title:" in item and "Critique:" in item:
-                        try:
-                            parts = item.replace("Title:", "").split("Critique:", 1)
-                            title_text = parts[0].strip(" *")
-                            body_text = parts[1].strip()
-                        except:
-                            pass
-                    
-                    # Meta
-                    st.markdown(
-                        f'''
-                        <div class="suggestion-meta">
-                            <span>⚖️ Critique</span>
-                            <span>AI Generated</span>
-                        </div>
-                        ''',
-                        unsafe_allow_html=True
-                    )
-                    
-                    st.markdown(f"**{title_text}**")
-                    st.markdown(f"<div class='suggestion-text'>{body_text}</div>", unsafe_allow_html=True)
-                    
-                    st.divider()
-                    
-                    c_sel, c_pin, c_ign = st.columns([1, 1, 1])
-                    with c_sel:
-                        if st.button("✔ Select", key=f"cs_sel_{i}", use_container_width=True):
-                             # 1. Create Tree Node
-                             from tree import add_child
-                             child_id = add_child(tree, current_node["id"], body_text, node_type="critique")
-                             child = tree["nodes"][child_id]
-                             
-                             # 2. Inherit HTML (Clean)
-                             parent_html = current_node.get("metadata", {}).get("html", "")
-                             if not parent_html and current_node["summary"]:
-                                 parent_html = f"<p>{current_node['summary']}</p>"
-                             
-                             child.setdefault("metadata", {})["html"] = parent_html
-                             
-                             # Use the parsed TITLE for the tree label
-                             child["metadata"]["label"] = title_text 
-                             
-                             # Use TITLE + BODY for the summary? Or just body?
-                             # Let's keep summary as the full content for context, but label is short.
-                             child["summary"] = f"{title_text}: {body_text}"
-                             
-                             # 3. Pin & Navigate
-                             # Fix: Use Object structure for pin
-                             st.session_state.pinned_context.append({"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
-                             
-                             st.session_state.selected_paths.append(child_id)
-                             # Note: We do NOT delete current_critiques here, so it stays visible as confirmation.
-                             navigate_to_node(tree, child_id)
-                             st.rerun()
-                             
-                    with c_pin:
-                        if st.button("📌 Pin", key=f"cp_{i}", use_container_width=True):
-                            # Fix: Use Object structure for pin (id=None if not selected as node)
-                            st.session_state.pinned_context.append({"id": None, "text": f"**Critique: {title_text}**\n\n{body_text}"})
-                            st.rerun()
-                    with c_ign:
-                        if st.button("🗑 Del", key=f"ci_{i}", use_container_width=True):
-                            st.session_state["current_critiques"].pop(i)
-                            st.rerun()
+                # Iterate through all available critiques
+                for i, item in enumerate(list(st.session_state["current_critiques"])):
+                    with st.container(border=True):
+                        # Parse Title vs Content
+                        title_text = "Critical Perspective"
+                        body_text = item
+                        
+                        if "Title:" in item and "Critique:" in item:
+                            try:
+                                parts = item.replace("Title:", "").split("Critique:", 1)
+                                title_text = parts[0].strip(" *")
+                                body_text = parts[1].strip()
+                            except:
+                                pass
+                        
+                        # Meta
+                        st.markdown(
+                            f'''
+                            <div class="suggestion-meta">
+                                <span>⚖️ Critique</span>
+                                <span>AI Generated</span>
+                            </div>
+                            ''',
+                            unsafe_allow_html=True
+                        )
+                        
+                        st.markdown(f"**{title_text}**")
+                        st.markdown(f"<div class='suggestion-text'>{body_text}</div>", unsafe_allow_html=True)
+                        
+                        st.divider()
+                        
+                        c_sel, c_pin, c_ign = st.columns([1, 1, 1])
+                        with c_sel:
+                            if st.button("✔ Select", key=f"cs_sel_{i}", help="Accept this critique and pivot your focus here", use_container_width=True):
+                                # 1. Create Tree Node
+                                from tree import add_child
+                                child_id = add_child(tree, current_node["id"], body_text, node_type="critique")
+                                child = tree["nodes"][child_id]
+                                
+                                # 2. Inherit HTML (Clean)
+                                parent_html = current_node.get("metadata", {}).get("html", "")
+                                if not parent_html and current_node["summary"]:
+                                    parent_html = f"<p>{current_node['summary']}</p>"
+                                
+                                child.setdefault("metadata", {})["html"] = parent_html
+                                child["metadata"]["label"] = title_text 
+                                child["summary"] = f"{title_text}: {body_text}"
+                                
+                                # 3. Pin & Navigate (CLEAR OLD PINS as requested)
+                                st.session_state.pinned_context = [{"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"}]
+                                st.session_state.selected_paths = [child_id]
+                                
+                                # 4. REMOVE from list so it disappears
+                                st.session_state["current_critiques"].pop(i)
+                                
+                                navigate_to_node(tree, child_id)
+                                if "editor_version" in st.session_state:
+                                    st.session_state.editor_version += 1
+                                st.rerun()
+                                
+                        with c_pin:
+                            if st.button("📌 Pin", key=f"cp_{i}", help="Add to reference context without pivoting", use_container_width=True):
+                                st.session_state.pinned_context.append({"id": None, "text": f"**Critique: {title_text}**\n\n{body_text}"})
+                                # REMOVE from list so it disappears
+                                st.session_state["current_critiques"].pop(i)
+                                st.rerun()
+                        with c_ign:
+                            if st.button("🗑 Del", key=f"ci_{i}", help="Dismiss this specific suggestion", use_container_width=True):
+                                st.session_state["current_critiques"].pop(i)
+                                st.rerun()
             st.divider()
 
         # ✨ Refined Changes (Full Text / Block Diff)

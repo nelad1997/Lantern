@@ -26,8 +26,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
 
             "Output Format (STRICT):\n"
             "For each of the 3 selected perspectives:\n"
-            "Title: <A short, academic name for the lens>\n"
-            "Title: <A short, academic name for the lens>\n"
+            "Title: <A short, concrete, and highly descriptive name for the lens - avoid generic names>\n"
             "Explanation: <Concise explanation (MAX 40 WORDS) of how this lens applies.>\n\n"
 
             "Rules:\n"
@@ -75,23 +74,19 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "MODE: CHALLENGE (Devil’s Advocate)\n\n"
 
             "INSTRUCTIONS:\n"
-            "1. Context Awareness: First, infer if the text adopts a specific theoretical "
-            "or analytical lens (e.g., economic, ethical, etc.). If so, critique how well "
-            "it applies that lens, in addition to general logic.\n"
-            "2. Apply Module 1 (Logical Rigor) and Module 5 (Ethics/Bibliography) "
-            "from the principles below.\n"
-            "3. Identify the ONE most critical logical gap, unsubstantiated claim, or hidden assumption.\n"
-            "4. Check for 'Hasty Generalizations' and 'False Causation'.\n\n"
+            "1. Context Awareness: Infer the theoretical or analytical lens. Critique how well it applies that lens.\n"
+            "2. Apply Module 1 (Logical Rigor) and Module 5 (Ethics/Bibliography).\n"
+            "3. Identify UP TO 3 distinct logical gaps, unsubstantiated claims, or hidden assumptions.\n"
+            "4. If the text is already highly rigorous and NO improvements are necessary, return ONLY the string: NO_CRITIQUE_NEEDED\n\n"
 
             "Output Rules:\n"
-            "- Provide ONE short, sharp, and direct critique.\n"
-            "- Output Format (STRICT):\n"
-            "Title: <Short 3-5 word title for the critique>\n"
-            "Critique: <The critique content>\n"
-            "- Be critical but constructive.\n"
-            "- Do NOT suggest specific rewrites, only point out the flaws.\n"
+            "- If there are critiques, provide UP TO 3 short and direct blocks.\n"
+            "- Output Format (STRICT) per block:\n"
+            "Title: <Short 3-5 word title for the issue>\n"
+            "Critique: <The concise critique content>\n"
+            "- Separate blocks with a double newline.\n"
             "- Respond in the same language as the input text.\n"
-            "- STRICTLY NO introductory text. Start directly with the 'Title:' line.\n\n"
+            "- STRICTLY NO introductory text. Start directly with 'Title:' or 'NO_CRITIQUE_NEEDED'.\n\n"
             f"Input & Principles:\n{focus}"
         )
 
