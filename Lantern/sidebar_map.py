@@ -65,7 +65,16 @@ def render_sidebar_map(tree):
         label = truncate(raw_label, 15)
         tooltip = raw_label
         
-        graph.node(node_id, label=label, fillcolor=fill_color, fontcolor=font_color, color=border_color, penwidth=penwidth, tooltip=tooltip)
+        graph.node(
+            node_id, 
+            label=label, 
+            fillcolor=fill_color, 
+            fontcolor=font_color, 
+            color=border_color, 
+            penwidth=penwidth, 
+            tooltip=tooltip,
+            URL=f"?node_id={node_id}" # Directly trigger interactive navigation via query param
+        )
         
         if node["parent"]:
              graph.edge(node["parent"], node_id)
@@ -93,107 +102,3 @@ def render_sidebar_map(tree):
         if "editor_version" in st.session_state:
             st.session_state.editor_version += 1
         st.rerun()
-
-    # 2. Navigation Tools
-    st.sidebar.divider()
-    st.sidebar.subheader("📍 Navigation", help="Navigate through your thought history. Click on previous nodes to return to them.")
-    
-    # Show Ancestors (Path to Root)
-    st.sidebar.caption("Current Path", help="The sequence of ideas leading to your current state.")
-    
-    path = []
-    temp_id = current_id
-    while temp_id:
-        node = get_node(tree, temp_id)
-        path.append(node)
-        temp_id = node["parent"]
-    path.reverse()
-    
-    for node in path:
-        is_active = (node["id"] == current_id)
-        
-        # Determine the label: Use descriptive label if available, otherwise truncate summary
-        label_text = node.get("metadata", {}).get("label")
-        if not label_text:
-            nav_text = node['summary']
-            if not nav_text or not nav_text.strip():
-                nav_text = "Start" if node["type"] == "root" else "Untitled Idea"
-            label_text = truncate(nav_text, 25)
-            
-        label = f"{'🟣' if is_active else '⚪'} {label_text}"
-        
-        # Concise Tooltip: Summarize the idea instead of showing full raw text
-        # If it's a long text, we skip the middle part for the tooltip or use a "General Explanation"
-        node_summary = node.get("summary", "")
-        clean_tooltip = node_summary[:100] + "..." if len(node_summary) > 100 else node_summary
-        
-        if st.sidebar.button(label, key=f"nav_btn_{node['id']}", disabled=is_active, help=f"Return to: {clean_tooltip}"):
-            # Auto-Pin this node for context
-            node_id = node['id']
-            if not any(item.get("id") == node_id for item in st.session_state.pinned_context):
-                st.session_state.pinned_context.append({"id": node_id, "text": node["summary"]})
-            
-            navigate_to_node(tree, node_id)
-            # NO editor_version increment here - keep the current text!
-            st.rerun()
-
-    # Show Siblings (Alternatives)
-    current_node = get_node(tree, current_id)
-    if current_node["parent"]:
-        siblings = get_children(tree, current_node["parent"])
-        alternatives = [s for s in siblings if s["id"] != current_id and s["id"] not in banned_ids]
-        
-        if alternatives:
-            st.sidebar.caption("Alternatives", help="Other ideas you explored at this step.")
-            for sib in alternatives:
-                if st.sidebar.button(f"↪️ {truncate(sib['summary'], 25)}", key=f"nav_alt_{sib['id']}", help=f"Switch AI focus to: {sib['summary']}"):
-                    # Auto-Pin Alternative
-                    sib_id = sib['id']
-                    if not any(item.get("id") == sib_id for item in st.session_state.pinned_context):
-                        st.session_state.pinned_context.append({"id": sib_id, "text": sib["summary"]})
-                    
-                    navigate_to_node(tree, sib_id)
-                    st.rerun()
-
-    # 3. Direct Jump (Dropdown)
-    st.sidebar.divider()
-    st.sidebar.caption("🔍 Jump to any node", help="Directly jump to any specific idea in the tree.")
-    
-    # Sort nodes by creation order or hierarchy? Hierarchy is better but harder to sort flat list.
-    # Let's just list them all with depth indentation.
-    all_nodes_list = list(tree["nodes"].values())
-    
-    # Simple sort by ID (approx creation time) to keep order stable
-    all_nodes_list.sort(key=lambda x: x["id"])
-    
-    def format_node_option(n):
-        depth = get_depth(tree, n["id"])
-        prefix = "— " * depth
-        label = truncate(n["summary"], 40)
-        return f"{prefix}{label}"
-        
-    # Find index of current
-    current_idx = 0
-    for idx, n in enumerate(all_nodes_list):
-        if n["id"] == current_id:
-            current_idx = idx
-            break
- 
-    target_node = st.sidebar.selectbox(
-        "Select Node", 
-        all_nodes_list, 
-        format_func=format_node_option,
-        index=current_idx,
-        key="jump_box",
-        help="Choose a node from the full list."
-    )
-    
-    if st.sidebar.button("Go", key="jump_btn", use_container_width=True, help="Navigate to the selected node."):
-         if target_node["id"] != current_id:
-            # Auto-Pin Dropdown selection
-            t_id = target_node['id']
-            if not any(item.get("id") == t_id for item in st.session_state.pinned_context):
-                st.session_state.pinned_context.append({"id": t_id, "text": target_node["summary"]})
-                
-            navigate_to_node(tree, t_id)
-            st.rerun()

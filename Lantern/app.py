@@ -133,6 +133,25 @@ def main():
     if "knowledge_base" not in st.session_state:
         st.session_state.knowledge_base = {}
 
+    # --- Interactive Navigation Handler (Map Click) ---
+    if "node_id" in st.query_params:
+        target_node_id = st.query_params["node_id"]
+        if target_node_id in st.session_state.tree["nodes"]:
+            # Perform Navigation
+            navigate_to_node(st.session_state.tree, target_node_id)
+            
+            # Auto-Pin for context
+            target_node = st.session_state.tree["nodes"][target_node_id]
+            if not any(item.get("id") == target_node_id for item in st.session_state.pinned_context):
+                st.session_state.pinned_context.append({
+                    "id": target_node_id, 
+                    "text": target_node["summary"]
+                })
+            
+            # Clear query params to prevent reload loop
+            st.query_params.clear()
+            st.rerun()
+
 
     tree = st.session_state.tree
     current_node = get_current_node(tree)
