@@ -27,7 +27,7 @@ def build_prompt(action: ActionType, focus: str) -> str:
             "Output Format (STRICT):\n"
             "For each of the 3 selected perspectives:\n"
             "Title: <A short, concrete, and highly descriptive name for the lens - avoid generic names>\n"
-            "Explanation: <Concise explanation (MAX 40 WORDS) of how this lens applies.>\n\n"
+            "Explanation: <Rich explanation (MAX 100 WORDS) of how this lens applies.>\n\n"
 
             "Rules:\n"
             "- Do NOT rewrite the author's text.\n"

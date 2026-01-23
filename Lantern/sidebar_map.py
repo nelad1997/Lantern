@@ -1,69 +1,132 @@
 import streamlit as st
 import graphviz
-from tree import get_node, get_children, navigate_to_node, init_tree
-
-def truncate(text, length=20):
-    return text[:length] + "..." if len(text) > length else text
-
-def get_depth(tree, node_id):
-    depth = 0
-    curr = tree["nodes"].get(node_id)
-    while curr and curr["parent"]:
-        depth += 1
-        curr = tree["nodes"].get(curr["parent"])
-    return depth
-
-def get_node_color(node, current_id, banned_ids):
-    if node["id"] == current_id:
-        return "#7c3aed", "white" # Purple-600, White text
-    if node["id"] in banned_ids:
-        return "#f1f5f9", "#94a3b8" # Slate-100, Slate-400
-    if node["type"] == "root":
-        return "#ecfdf5", "#047857" # Emerald-50, Emerald-700
-    return "#ffffff", "#334155" # White, Slate-700
-
-def format_for_pin(text):
-    """Helper to format text nicely for Pinned Context (bold title)."""
-    if "Title:" in text:
-        if "Explanation:" in text:
-             parts = text.replace("Title:", "").split("Explanation:", 1)
-        else:
-             parts = text.replace("Title:", "").split("\n", 1)
-        
-        if len(parts) >= 2:
-            return f"**{parts[0].strip(' *')}**\n\n{parts[1].strip()}"
-    return text
+from tree import get_node, navigate_to_node, get_node_short_label
 
 def render_sidebar_map(tree):
     """
-    Renders the tree visualization using Graphviz and navigation buttons.
+    Renders the vertical 'Thought Tree' in the sidebar.
     """
-    st.sidebar.subheader("🗺️ Thought Tree")
-
     # 1. Graphviz Visualization
-    graph = graphviz.Digraph()
-    graph.attr(rankdir='TB', size='3,5') # Top-to-Bottom, constrained width
-    graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', fontsize='10')
-    graph.attr('edge', color='#cbd5e1')
-
-    # Traverse and build graph (BFS/DFS)
-    # To avoid huge graphs, we might limit depth or focus on active branch? 
-    # For now, render full tree (assuming reasonably small sessions)
+    st.sidebar.subheader("🗺️ Thought Tree")
+    
+    # --- Interactive Navigation (Selectbox) ---
+    # Solution for "Interactive Selection without URLs/Reloads"
+    
+    # Helper to get visible nodes
+    visible_nodes = [nid for nid in tree["nodes"] if nid not in st.session_state.get("banned_ideas", [])]
     
     current_id = tree["current"]
     banned_ids = st.session_state.get("banned_ideas", [])
     
+    # Callback to handle state persistence + navigation
+    def handle_navigation():
+        new_id = st.session_state["nav_selection_box"]
+        current_id_in_callback = st.session_state.tree["current"] # Use session state directly
+        
+        # Only switch if changed
+        if new_id != current_id_in_callback:
+            # 1. SAVE: Persist current editor to OLD node
+            if "editor_html" in st.session_state:
+                st.session_state.tree["nodes"][current_id_in_callback].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
+                st.session_state.tree["nodes"][current_id_in_callback]["metadata"]["draft_plain"] = st.session_state.get("focused_text", "")
+            
+            # 2. NAVIGATE: Update pointer
+            navigate_to_node(st.session_state.tree, new_id)
+            
+            # 3. LOAD: Update editor to NEW node
+            st.session_state["editor_html"] = st.session_state.tree["nodes"][new_id].get("metadata", {}).get("html", "")
+            
+            # 4. AUTO-PIN: Commit this idea to context (User Request "Commit Navigation")
+            target_node = st.session_state.tree["nodes"][new_id]
+            if target_node["type"] != "root":
+                if "pinned_items" not in st.session_state.tree:
+                    st.session_state.tree["pinned_items"] = []
+                
+                # Check for duplicates
+                if not any(item.get("id") == new_id for item in st.session_state.tree["pinned_items"]):
+                    # Extract RICH context for pinning (User Request: "Richest available explanation")
+                    # Priority: 1. Idea Text (AI Suggestion) 2. User Draft 3. One-Liner 4. Title fallback
+                    meta = target_node.get("metadata", {})
+                    pin_text = meta.get("idea_text")
+                    
+                    if not pin_text:
+                         pin_text = meta.get("draft_plain")
+                    if not pin_text:
+                         pin_text = meta.get("one_liner")
+                    if not pin_text:
+                         pin_text = get_node_short_label(target_node)
+                         
+                    # Use Structured Object
+                    pin_obj = {
+                        "id": new_id, 
+                        "title": get_node_short_label(target_node),
+                        "text": pin_text,
+                        "type": "idea"
+                    }
+                    st.session_state.tree["pinned_items"].append(pin_obj)
+            
+            # (Rerun happens automatically after callback)
+
+    # Find current index for default
+    try:
+        current_index = visible_nodes.index(current_id)
+    except ValueError:
+        current_index = 0
+
+    st.sidebar.selectbox(
+        "Jump to Node:",
+        options=visible_nodes,
+        format_func=lambda nid: get_node_short_label(tree["nodes"][nid]),
+        index=current_index,
+        key="nav_selection_box",
+        on_change=handle_navigation
+    )
+
+    graph = graphviz.Digraph()
+    graph.attr(rankdir='TB') 
+    graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', fontsize='10', margin='0.1')
+    graph.attr('edge', color='#64748b') 
+    
     for node_id, node in tree["nodes"].items():
-        # Skip completely if it's a "deep" banned node? No, show them as pruned.
+        if node_id in banned_ids:
+            continue
+            
+        # High Contrast Coloring
+        is_current = (node_id == current_id)
+        is_root = (node["type"] == "root")
         
-        fill_color, font_color = get_node_color(node, current_id, banned_ids)
-        border_color = "#7c3aed" if node_id == current_id else "#e2e8f0"
-        penwidth = "2" if node_id == current_id else "1"
+        if is_root:
+            fill_color = "#dcfce7" 
+            font_color = "#14532d" 
+            border_color = "#22c55e" 
+            penwidth = "2"
+        elif is_current:
+            fill_color = "#7c3aed" 
+            font_color = "white"
+            border_color = "#5b21b6" 
+            penwidth = "3"
+        else:
+            fill_color = "#ffffff" 
+            font_color = "#0f172a" 
+            border_color = "#94a3b8" 
+            penwidth = "1"
         
-        # Prefer 'label' from metadata (if available) for the tree node text
-        raw_label = node.get("metadata", {}).get("label", node["summary"])
-        label = truncate(raw_label, 15)
-        tooltip = raw_label
+        # Check for saved critiques
+        node_metadata = node.get("metadata", {})
+        saved_critiques = node_metadata.get("critiques", [])
+        has_critiques = len(saved_critiques) > 0
+        critique_icon = " 💡" if has_critiques else ""
+        
+        # Label Construction
+        label_text = get_node_short_label(node)
+        label = f"{label_text}{critique_icon}"
+        
+        # Tooltip
+        tooltip_text = node_metadata.get("one_liner")
+        if not tooltip_text:
+             tooltip_text = node["summary"][:100].replace('"', "'") + "..."
+        else:
+             tooltip_text = tooltip_text.replace('"', "'")
         
         graph.node(
             node_id, 
@@ -72,11 +135,11 @@ def render_sidebar_map(tree):
             fontcolor=font_color, 
             color=border_color, 
             penwidth=penwidth, 
-            tooltip=tooltip,
-            URL=f"?node_id={node_id}" # Directly trigger interactive navigation via query param
+            tooltip=tooltip_text
+            # NO URL - Purely Visual (Use 'Jump to Node' selectbox above)
         )
         
-        if node["parent"]:
+        if node["parent"] and node["parent"] not in banned_ids:
              graph.edge(node["parent"], node_id)
 
     st.sidebar.graphviz_chart(graph, use_container_width=True)
@@ -85,20 +148,17 @@ def render_sidebar_map(tree):
     st.sidebar.divider()
     st.sidebar.caption("Reset Workspace", help="Completely wipe the tree and context to start a new session.")
     if st.sidebar.button("🗑️ Reset Full Tree", help="Permanently delete all branches and start a new session from scratch.", use_container_width=True):
-        # Capture current content to keep it in the new root
-        current_node = tree["nodes"][tree["current"]]
-        curr_summary = current_node.get("summary", "")
-        curr_metadata = current_node.get("metadata", {}).copy()
+        # 1. Clear State
+        st.session_state.tree = {"nodes": {}, "current": ""} 
+        st.session_state.clear()
+        st.query_params.clear() # Fix: Ensure URL is cleared to prevent stuck navigation
         
-        st.session_state.tree = init_tree(curr_summary, curr_metadata)
-        st.session_state.pinned_context = []
-        st.session_state.selected_paths = []
-        st.session_state.banned_ideas = []
-        st.session_state.pop("current_critiques", None)
-        st.session_state.pop("comparison_data", None)
-        st.session_state.pop("last_refine_diff", None)
-        st.session_state.pop("editor_html", None)
-        # Force editor to refresh (if using the versioning trick)
-        if "editor_version" in st.session_state:
-            st.session_state.editor_version += 1
+        # 2. Delete Autosave File to prevent resurrection
+        import os
+        if os.path.exists("lantern_autosave.json"):
+            try:
+                os.remove("lantern_autosave.json")
+            except:
+                pass
+        
         st.rerun()

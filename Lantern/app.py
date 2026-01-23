@@ -3,10 +3,11 @@ import base64
 from streamlit_quill import st_quill
 import re
 import json
+import os
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
-from tree import init_tree, get_current_node, navigate_to_node
+from tree import init_tree, get_current_node, navigate_to_node, get_node_short_label
 from controller import handle_event, generate_diff_html, apply_fuzzy_replacement
 from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
@@ -22,6 +23,32 @@ st.set_page_config(page_title="Lantern", layout="wide")
 # -------------------------------------------------
 # Persistence Helpers
 # -------------------------------------------------
+AUTOSAVE_FILE = "lantern_autosave.json"
+
+def save_autosave(tree):
+    """Saves the current tree state to a local JSON file."""
+    try:
+        with open(AUTOSAVE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(tree, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Auto-save failed: {e}")
+
+def load_autosave():
+    """Traies to load the tree state from the local autosave file."""
+    if not os.path.exists(AUTOSAVE_FILE):
+        return False
+    try:
+        with open(AUTOSAVE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        st.session_state.tree = data
+        # Ensure migration
+        if "pinned_items" not in st.session_state.tree:
+             st.session_state.tree["pinned_items"] = []
+        return True
+    except Exception as e:
+        st.error(f"Failed to load autosave: {e}")
+        return False
+
 def save_project(tree):
     return json.dumps(tree, indent=2, ensure_ascii=False)
 
@@ -30,8 +57,12 @@ def load_project(json_str):
     try:
         data = json.loads(json_str)
         st.session_state.tree = data
+        # Migrate old projects or ensure key exists
+        if "pinned_items" not in st.session_state.tree:
+             st.session_state.tree["pinned_items"] = []
+             
         st.session_state.banned_ideas = []
-        st.session_state.pinned_context = []
+        save_autosave(st.session_state.tree) # Save immediately after loading
         return True
     except Exception as e:
         st.error(f"Failed to load project: {e}")
@@ -135,38 +166,39 @@ def main():
 
     if "is_thinking" not in st.session_state:
         st.session_state.is_thinking = False
+    
+    # Strict Root Initialization Flag
+    if "root_topic_resolved" not in st.session_state:
+        st.session_state.root_topic_resolved = False
+
+    # Concurrency Lock
+    if "llm_in_flight" not in st.session_state:
+        st.session_state.llm_in_flight = False
+
     if "tree" not in st.session_state:
-        st.session_state.tree = init_tree("")
-    if "pinned_context" not in st.session_state:
-        st.session_state.pinned_context = []
+        if not load_autosave():
+           st.session_state.tree = init_tree("")
+           save_autosave(st.session_state.tree)
+    
+    # Ensure pinned_items exists in tree (migration for active session)
+    if "pinned_items" not in st.session_state.tree:
+        st.session_state.tree["pinned_items"] = []
+        
     if "banned_ideas" not in st.session_state:
         st.session_state.banned_ideas = []
     if "selected_paths" not in st.session_state:
         st.session_state.selected_paths = []
+
     if "editor_version" not in st.session_state:
         st.session_state.editor_version = 0
     if "knowledge_base" not in st.session_state:
         st.session_state.knowledge_base = {}
 
-    # --- Interactive Navigation Handler (Map Click) ---
-    if "node_id" in st.query_params:
-        target_node_id = st.query_params["node_id"]
-        if target_node_id in st.session_state.tree["nodes"]:
-            # Perform Navigation
-            navigate_to_node(st.session_state.tree, target_node_id)
-            
-            # Auto-Pin for context (SKIP ROOT)
-            target_node = st.session_state.tree["nodes"][target_node_id]
-            if target_node["type"] != "root":
-                if not any(item.get("id") == target_node_id for item in st.session_state.pinned_context):
-                    st.session_state.pinned_context.append({
-                        "id": target_node_id, 
-                        "text": target_node["summary"]
-                    })
-            
-            # Clear query params to prevent reload loop
-            st.query_params.clear()
-            st.rerun()
+    # --- Interactive Navigation Handler (Native Selectbox) ---
+    # Navigation is now handled by 'handle_navigation' callback in sidebar_map.py
+    # No URL query params are used.
+
+
 
 
     tree = st.session_state.tree
@@ -200,10 +232,8 @@ def main():
         )
 
         # --- Navigation / Undo ---
-        if current_node.get("parent"):
-             if st.button("↩ Go to Parent (Undo)", help="Go back to the previous thought"):
-                 navigate_to_node(tree, current_node["parent"])
-                 st.rerun()
+        # (Button Removed per user request)
+
         
         if "editor_html" not in st.session_state:
             st.session_state["editor_html"] = current_node.get("metadata", {}).get("html", "")
@@ -269,22 +299,50 @@ def main():
         )
 
         blocks_data = []
-        if html_content is not None:
+        if html_content:
+            # Update the persistent editor state
             st.session_state["editor_html"] = html_content
-            # Optionally keep the current node synced if it's the main path
+            # Keep the current node's draft synced without destroying its Title (summary)
             current_node.setdefault("metadata", {})["html"] = html_content
             
-            # --- Better HTML Parsing (Preserve Paragraphs & Headers) ---
-            # 1. Replace block endings with double newlines
+            # --- Extract Plain Text for Focus Logic ONLY (Do not overwrite summary) ---
             text_processing = re.sub(r"<(/?p|/?div|/h[1-6])>", "\n\n", html_content)
-            # 2. Handle line breaks
             text_processing = text_processing.replace("<br>", "\n")
-            # 3. Strip remaining tags
             plain_text = re.sub("<[^<]+?>", "", text_processing).strip()
-            # 4. Clean excessive newlines (max 2)
             plain_text = re.sub(r"\n{3,}", "\n\n", plain_text)
             
-            current_node["summary"] = plain_text
+            # Store the current draft's plain text in metadata for context retrieval
+            current_node["metadata"]["draft_plain"] = plain_text
+            # Note: We NO LONGER overwrite current_node["summary"] here.
+            # Summary = The Idea/Title. Metadata['html'] = The Draft.
+            
+            # --- Auto-Detect Topic for Root Node (One-Time Strict Lock) ---
+            # Correct Flow: Resolve -> Lock -> Never touch again
+            if not st.session_state.get("root_topic_resolved", False):
+                if current_node["type"] == "root":
+                     # 1. Check for H1 (Priority 1)
+                     h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html_content, re.IGNORECASE | re.DOTALL)
+                     if h1_match:
+                         title_text = re.sub("<[^<]+?>", "", h1_match.group(1)).strip()
+                         if title_text:
+                             current_node["summary"] = title_text
+                             st.session_state.root_topic_resolved = True # LOCKED
+                             save_autosave(st.session_state.tree)
+                             st.rerun()
+                     
+                     # 2. Fallback to AI Summarization (Priority 2)
+                     elif len(plain_text) > 50:
+                         from llm_client import call_llm 
+                         try:
+                             topic = call_llm(f"Summarize the following text into a very short, 3-6 word academic topic title. Do not use quotes or prefixes:\n\n{plain_text}")
+                             if topic:
+                                 current_node["summary"] = topic.strip()
+                                 st.session_state.root_topic_resolved = True # LOCKED
+                                 save_autosave(st.session_state.tree)
+                                 st.rerun()
+                         except Exception:
+                             pass
+            # -----------------------------------------------------------------
             
             blocks = re.findall(r"<(p|h[1-6])[^>]*>(.*?)</\1>", html_content, re.DOTALL)
             for tag, inner_html in blocks:
@@ -297,7 +355,8 @@ def main():
             block_idx = st.number_input("Block number", min_value=1, max_value=len(blocks_data), step=1)
             st.session_state["focused_text"] = blocks_data[block_idx - 1]["text"]
         else:
-            st.session_state["focused_text"] = current_node["summary"]
+            # Fix: Use the full draft content, NOT the Summary/Title
+            st.session_state["focused_text"] = current_node.get("metadata", {}).get("draft_plain", plain_text)
 
         with st.expander("🔍 AI Focus Preview", expanded=False):
             st.text_area("", value=st.session_state["focused_text"], height=100, disabled=True)
@@ -388,41 +447,54 @@ def main():
         
 
         # 📌 Pinned Context Section
-        if st.session_state.pinned_context:
+        if st.session_state.tree["pinned_items"]:
             st.markdown("<br><b>📌 Pinned Context</b>", unsafe_allow_html=True)
-            for i, item in enumerate(st.session_state.pinned_context):
+            for i, item in enumerate(st.session_state.tree["pinned_items"]):
                 # Handle both old (string) and new (dict) structures
                 is_node = isinstance(item, dict)
-                p_text = item["text"] if is_node else item
-                p_id = item["id"] if is_node else None
+                
+                # Default values for text/display
+                p_text = item if not is_node else item.get("text", "")
+                p_title = item.get("title", "") if is_node else ""
+                
+                # Render Rich Context if available
+                display_html = ""
+                if p_title and p_title != p_text:
+                     # Structured Object (New)
+                     display_html = f"<strong>{p_title}</strong><br><span style='font-size:0.9em; opacity:0.9'>{p_text}</span>"
+                else:
+                     # Legacy or unstructured
+                     display_html = p_text
 
                 c_txt, c_btns = st.columns([0.85, 0.15])
                 with c_txt:
-                    st.markdown(f'<div class="pinned-box">{p_text}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="pinned-box">{display_html}</div>', unsafe_allow_html=True)
                 with c_btns:
                     if st.button("❌", key=f"unpin_{i}", help="Remove from context", use_container_width=True):
-                        st.session_state.pinned_context.pop(i)
+                        st.session_state.tree["pinned_items"].pop(i)
+                        save_autosave(st.session_state.tree)
                         st.rerun()
                 
-                # Show Select button BELOW the box if it's not the current node
-                if p_id != tree["current"]:
-                    if st.button("✔ Focus AI", key=f"sel_p_{i}", help="Direct AI's focus to this idea", use_container_width=True):
-                        target_id = p_id
-                        if not target_id:
-                            from tree import add_child
-                            clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
-                            target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
-                            tree["nodes"][target_id].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
-                            st.session_state.pinned_context[i]["id"] = target_id
-                        
-                        st.session_state.selected_paths = [target_id]
-                        navigate_to_node(tree, target_id)
+                # Buttons Row: Expanded Controls (Removed "Explore", kept minimal)
+                if is_node:
+                    pass # We auto-explore below in Suggested Paths now. Logic is simpler.
+                else:
+                    # Legacy string pin support (Concept only) - can keep or remove, user didn't complain about this explicitly but asked to cancel "Added exploring button"
+                    if st.button("➕ Turn into Node", key=f"make_node_{i}", help="Convert text to a node to explore it", use_container_width=True):
+                        from tree import add_child
+                        clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
+                        target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
+                        tree["nodes"][target_id].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
+                        st.session_state.tree["pinned_items"][i] = {"id": target_id, "text": p_text} # Upgrade pin
+                        save_autosave(st.session_state.tree)
                         st.rerun()
 
+
             if st.button("Clear all context", help="Wipe all pinned items"):
-                st.session_state.pinned_context = []
+                st.session_state.tree["pinned_items"] = []
                 st.session_state.selected_paths = []
                 st.session_state.banned_ideas = []
+                save_autosave(st.session_state.tree)
                 st.rerun()
 
         st.divider()
@@ -443,15 +515,24 @@ def main():
                     st.rerun()
 
                 # Iterate through all available critiques
-                for i, item in enumerate(list(st.session_state["current_critiques"])):
+                # "current_critiques" now contains dicts: {"id": "...", "text": "..."}
+                for i, item_data in enumerate(list(st.session_state["current_critiques"])):
+                    # Handle both old (str) and new (dict) formats for safety
+                    if isinstance(item_data, dict):
+                        critique_text = item_data["text"]
+                        critique_id = item_data["id"]
+                    else:
+                        critique_text = item_data
+                        critique_id = None # Should not happen with new controller logic
+                        
                     with st.container(border=True):
                         # Parse Title vs Content
                         title_text = "Critical Perspective"
-                        body_text = item
+                        body_text = critique_text
                         
-                        if "Title:" in item and "Critique:" in item:
+                        if "Title:" in critique_text and "Critique:" in critique_text:
                             try:
-                                parts = item.replace("Title:", "").split("Critique:", 1)
+                                parts = critique_text.replace("Title:", "").split("Critique:", 1)
                                 title_text = parts[0].strip(" *")
                                 body_text = parts[1].strip()
                             except:
@@ -475,38 +556,33 @@ def main():
                         
                         c_sel, c_pin, c_ign = st.columns([1, 1, 1])
                         with c_sel:
-                            if st.button("✔ Select", key=f"cs_sel_{i}", help="Accept this critique and pivot your focus here", use_container_width=True):
-                                # 1. Create Tree Node
-                                from tree import add_child
-                                child_id = add_child(tree, current_node["id"], body_text, node_type="critique")
-                                child = tree["nodes"][child_id]
-                                
-                                # 2. Inherit HTML (Clean)
-                                parent_html = current_node.get("metadata", {}).get("html", "")
-                                if not parent_html and current_node["summary"]:
-                                    parent_html = f"<p>{current_node['summary']}</p>"
-                                
-                                child.setdefault("metadata", {})["html"] = parent_html
-                                child["metadata"]["label"] = title_text 
-                                child["summary"] = f"{title_text}: {body_text}"
-                                
-                                # 3. Pin & Navigate (Preseve context as requested)
-                                st.session_state.pinned_context.append({"id": child_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
-                                st.session_state.selected_paths.append(child_id)
-                                
-                                # 4. REMOVE from list so it disappears
-                                st.session_state["current_critiques"].pop(i)
-                                
-                                navigate_to_node(tree, child_id)
-                                if "editor_version" in st.session_state:
-                                    st.session_state.editor_version += 1
-                                st.rerun()
-                                
+                            # Button acts as "Navigate" since node exists
+                            if st.button("✔ Select", key=f"cs_sel_{i}", help="Pivot your focus to this critique", use_container_width=True):
+                                if critique_id:
+                                    # Copy current state to the critique node if needed
+                                    critique_node = tree["nodes"][critique_id]
+                                    # Inherit clean HTML from parent
+                                    parent_html = current_node.get("metadata", {}).get("html", "")
+                                    if not parent_html and current_node["summary"]:
+                                        parent_html = f"<p>{current_node['summary']}</p>"
+                                    
+                                    critique_node.setdefault("metadata", {})["html"] = parent_html
+                                    
+                                    # Auto-Pin and Navigate
+                                    st.session_state.tree["pinned_items"].append({"id": critique_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
+                                    st.session_state.selected_paths.append(critique_id)
+                                    
+                                    
+                                    navigate_to_node(tree, critique_id)
+                                    save_autosave(st.session_state.tree)
+                                    st.rerun()
+                                    
                         with c_pin:
                             if st.button("📌 Pin", key=f"cp_{i}", help="Add to reference context without pivoting", use_container_width=True):
-                                st.session_state.pinned_context.append({"id": None, "text": f"**Critique: {title_text}**\n\n{body_text}"})
+                                st.session_state.tree["pinned_items"].append({"id": critique_id, "text": f"**Critique: {title_text}**\n\n{body_text}"})
                                 # REMOVE from list so it disappears
                                 st.session_state["current_critiques"].pop(i)
+                                save_autosave(st.session_state.tree)
                                 st.rerun()
                         with c_ign:
                             if st.button("🗑 Del", key=f"ci_{i}", help="Dismiss this specific suggestion", use_container_width=True):
@@ -591,31 +667,53 @@ def main():
                     and len(text) < 250
             )
 
+        # --- LOGIC: MERGE Current & Pinned Suggestions ---
+        # 1. Current Node Children
         visible_children = []
+        seen_ids = set()
+
+        # Add current node children FIRST
         for cid in current_node["children"]:
-            if cid in st.session_state.banned_ideas:
-                continue
-
+            if cid in st.session_state.banned_ideas: continue
             # ❌ Hide if already pinned
-            if any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.pinned_context):
-                continue
+            if any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]): continue
+            
+            seen_ids.add(cid)
+            visible_children.append({"id": cid, "source": "Current", "source_id": current_node["id"]})
 
-            text = tree["nodes"][cid]["summary"]
-            if is_intro_like(text):
-                continue  # ❌ לא מציגים כ-path
+        # 2. Pinned Nodes Children (The "Exposed Level" requested)
+        for item in st.session_state.tree["pinned_items"]:
+            if isinstance(item, dict) and item.get("id"):
+                 p_id = item["id"]
+                 if p_id in tree["nodes"]:
+                     p_node = tree["nodes"][p_id]
+                     for cid in p_node["children"]:
+                         if cid in st.session_state.banned_ideas: continue
+                         if cid in seen_ids: continue # Avoid dupes
+                         if any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]): continue
 
-            visible_children.append(cid)
+                         seen_ids.add(cid)
+                         visible_children.append({"id": cid, "source": "Pinned Idea", "source_id": p_id})
 
-        if visible_children:
+        # Filter intro-like text
+        final_list = []
+        for item in visible_children:
+            text = tree["nodes"][item["id"]]["summary"]
+            if not is_intro_like(text):
+                final_list.append(item)
+
+        if final_list:
+            # (Divider removed to prevent double-lines after Critique section)
             st.subheader("Suggested Paths")
-
             st.caption(
-                "Lantern generated alternative reasoning paths. "
-                "Select one to continue, or discard those you do not wish to pursue."
+                "Lantern generated alternative reasoning paths from your current draft and pinned ideas."
+                "Select one to continue."
             )
 
             # --- Layout: Vertical List (Compact) ---
-            for cid in visible_children:
+            for item in final_list:
+                cid = item["id"]
+                source_label = item["source"]
                 child = tree["nodes"][cid]
                 
                 with st.container(border=True):
@@ -624,7 +722,7 @@ def main():
                         f'''
                         <div class="suggestion-meta">
                             <span>🤖 {child.get("type", "Idea")}</span>
-                            <span>{child.get("created_at", "")}</span>
+                            <span>From: {source_label}</span>
                         </div>
                         ''',
                         unsafe_allow_html=True
@@ -651,11 +749,22 @@ def main():
 
                     if is_structured:
                         st.markdown(f"**{title_clean}**")
-                        st.markdown(f"<div style='font-size: 0.9em; color: #475569;'>{body_clean}</div>", unsafe_allow_html=True)
-                        formatted_text_for_pin = f"**{title_clean}**\n\n{body_clean}"
+                        
+                        # Truncate body if too long (Preview Mode)
+                        display_body = body_clean
+                        if len(display_body) > 300:
+                             display_body = display_body[:290] + "..."
+                             
+                        st.markdown(f"<div style='font-size: 0.9em; color: #475569;'>{display_body}</div>", unsafe_allow_html=True)
+                        formatted_text_for_pin = f"**{title_clean}**\n{get_node_short_label(child)}"
                     else:
-                        st.markdown(f"<div class='suggestion-text'>{raw_text}</div>", unsafe_allow_html=True)
-                        formatted_text_for_pin = raw_text
+                        # Truncate raw text
+                        display_text = raw_text
+                        if len(display_text) > 300:
+                             display_text = display_text[:290] + "..."
+                             
+                        st.markdown(f"<div class='suggestion-text'>{display_text}</div>", unsafe_allow_html=True)
+                        formatted_text_for_pin = get_node_short_label(child)
 
                     st.divider()
 
@@ -673,8 +782,15 @@ def main():
                              # ... logic ...
                             st.session_state.selected_paths.append(cid)
                             
-                            # Use FORMATED text for context
-                            st.session_state.pinned_context.append({"id": cid, "text": formatted_text_for_pin})
+                            # Use STRUCTURED OBJECT for context (Task 2: Pinning Structure)
+                            full_text_pin = child.get("metadata", {}).get("idea_text", formatted_text_for_pin)
+                            pin_obj = {
+                                "id": cid,
+                                "title": title_clean if is_structured else child["summary"],
+                                "text": full_text_pin,
+                                "type": "idea"
+                            }
+                            st.session_state.tree["pinned_items"].append(pin_obj)
                             
                             # --- Fix for Text Loss: Inherit Parent Content ---
                             # 1. Save the original "Idea" as the label for the Tree visualization
@@ -687,29 +803,32 @@ def main():
                                 parent_html = f"<p>{current_node['summary']}</p>"
                                 
                             # STRICT Inheritance: Editor stays exactly as it was
-                            child["metadata"]["html"] = parent_html
-                            child["summary"] = current_node["summary"]
+                            child.setdefault("metadata", {})["html"] = parent_html
+                            # (Removed child["summary"] = current_node["summary"] - Keep child's own title)
                             
-                            # -------------------------------------------------
-                            
-                            parent_id = current_node["id"]
-                            sibling_ids = tree["nodes"][parent_id]["children"]
-                            
-                            for sib_id in sibling_ids:
-                                if sib_id != cid and sib_id not in st.session_state.banned_ideas:
-                                    st.session_state.banned_ideas.append(sib_id)
+                            # (Sibling Cleanup Removed - User Request: Keep alternatives visible)
+
 
                             st.session_state.pop("current_critiques", None)
                             st.session_state.pop("last_refine_diff", None)
                             
                             # Navigate to the selected node to deepen the tree
                             navigate_to_node(tree, cid)
+                            save_autosave(st.session_state.tree)
                             st.rerun()
 
                     # 📌 PIN
                     with c_pin:
                         if st.button("📌 Pin", key=f"p_{cid}", help="Keep this idea as context", use_container_width=True):
-                            st.session_state.pinned_context.append({"id": cid, "text": formatted_text_for_pin})
+                            full_text_pin = child.get("metadata", {}).get("idea_text", formatted_text_for_pin)
+                            pin_obj = {
+                                "id": cid,
+                                "title": title_clean if is_structured else child["summary"],
+                                "text": full_text_pin,
+                                "type": "idea"
+                            }
+                            st.session_state.tree["pinned_items"].append(pin_obj)
+                            save_autosave(st.session_state.tree)
                             st.rerun()
 
                     # ✂️ PRUNE
@@ -722,15 +841,21 @@ def main():
         # Execute pending Lantern action (non-blocking UX)
         # -------------------------------------------------
         if st.session_state.pending_action and st.session_state.is_thinking:
-            payload = st.session_state.pending_action
-
+            # --- Concurrency Guard ---
+            if st.session_state.llm_in_flight:
+                st.warning("⚠️ Lantern is already thinking... (Concurrency Guard Triggered)")
+                st.stop()
+            
+            st.session_state.llm_in_flight = True
+            
             try:
+                payload = st.session_state.pending_action
                 response = handle_event(
                     st.session_state.tree,
                     UserEventType.ACTION,
                     {
                         "action": payload["action"],
-                        "pinned_context": st.session_state.pinned_context,
+                        "pinned_context": st.session_state.tree["pinned_items"],
                         "banned_ideas": st.session_state.banned_ideas,
                         "user_text": payload["user_text"],
                         "knowledge_base": st.session_state.get("knowledge_base", {}),
@@ -743,7 +868,6 @@ def main():
                 elif payload["action"] == ActionType.REFINE:
                     st.session_state["last_refine_diff"] = response.get("diff_html")
                     st.session_state["last_refine_text"] = response.get("refined_text")
-                    # Save what we originally sent, so we can replace ONLY that part later
                     st.session_state["last_refine_original_target"] = payload["user_text"]
                     st.session_state.pop("refine_changes", None)
 
@@ -751,12 +875,16 @@ def main():
                 st.error(f"❌ Gemini Error: {e}")
                 st.session_state.pending_action = None
                 st.session_state.is_thinking = False
+                st.session_state.llm_in_flight = False # Release lock on error
                 st.stop()
+                
+            finally:
+                st.session_state.llm_in_flight = False # Always release lock
 
-            # DIVERGE → הילדים כבר נוספו לעץ ע"י controller
-
+            # DIVERGE → Children added by controller
             st.session_state.pending_action = None
             st.session_state.is_thinking = False
+            save_autosave(st.session_state.tree)
             st.rerun()
 
 

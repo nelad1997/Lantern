@@ -18,6 +18,24 @@ load_dotenv(override=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Rate Limiter ---
+class RateLimiter:
+    def __init__(self, cooldown_seconds=3.0):
+        self.cooldown = cooldown_seconds
+        self.last_call_time = 0
+
+    def wait_if_needed(self):
+        now = time.time()
+        elapsed = now - self.last_call_time
+        if elapsed < self.cooldown:
+            wait_time = self.cooldown - elapsed
+            logger.warning(f"⏳ Rate Limit: Waiting {wait_time:.1f}s before next call...")
+            time.sleep(wait_time)
+        self.last_call_time = time.time()
+
+_limiter = RateLimiter(cooldown_seconds=3.0)
+
+
 
 def generate_content(action: ActionType, focus: str, system_instructions: str = "") -> str:
     """
@@ -51,6 +69,9 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
     prompt = build_prompt(action, focus)
 
     logger.info(f"🚀 Calling Gemini API for Action: {action.name}")
+    
+    # Enforce Rate Limit before call
+    _limiter.wait_if_needed()
 
     max_retries = 3
     retry_delay = 2 # seconds
@@ -86,5 +107,9 @@ def call_llm(prompt: str) -> str:
     api_key = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.0-flash")
+    
+    # Enforce Rate Limit
+    _limiter.wait_if_needed()
+    
     response = model.generate_content(prompt)
     return response.text.strip()

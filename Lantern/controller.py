@@ -2,7 +2,7 @@ import os
 import difflib
 from typing import Dict, Optional, Any, List
 from definitions import ActionType, UserEventType
-from tree import add_child, set_current
+from tree import add_child, navigate_to_node
 from prompt_builder import build_prompt
 from llm_client import call_llm
 
@@ -153,12 +153,27 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     # --- Stronger Deduplication (Check existing siblings) ---
     if action == ActionType.DIVERGE:
         current_node = tree["nodes"][anchor_id]
+        
+        # Prevent AI from suggesting the topic itself as a sub-path
+        topic_context = current_node["summary"]
+        
         existing_children_ids = current_node.get("children", [])
         existing_summaries = [tree["nodes"][cid]["summary"] for cid in existing_children_ids if cid in tree["nodes"]]
-        if existing_summaries:
-             constraints.append(f"ALREADY EXPLORED (Do not repeat these angles):\n- " + "\n- ".join(existing_summaries))
+        
+        # Add Current Topic context to existing summaries to ban them
+        banned_suggestions = existing_summaries + [topic_context]
+        
+        if banned_suggestions:
+             constraints.append(f"ALREADY EXPLORED / CURRENT TOPIC (Do not repeat these):\n- " + "\n- ".join(banned_suggestions))
 
     constraints.append("IMPORTANT: Respond in the same language as the input text.")
+
+    # --- Handle Empty Draft (Fresh Start) ---
+    is_fresh_start = False
+    if not base_focus or base_focus.strip() == "":
+        is_fresh_start = True
+        base_focus = "[NEW PROJECT: NO TEXT DRAFT YET]"
+        constraints.append("The user has just started. Suggest 3 distinct academic perspectives or research directions to begin the inquiry.")
 
     # 2. שליחה ל-LLM
     full_focus_text = base_focus + ("\n\n[SYSTEM CONSTRAINTS]:\n" + "\n".join(constraints) if constraints else "")
@@ -169,7 +184,28 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
 
     if action == ActionType.CRITIQUE:
         options = parse_llm_options(llm_output)
-        return {"mode": "critique", "items": options}
+        # Create nodes immediately for critiques
+        critique_nodes = []
+        for opt in options:
+            if opt.strip() == "NO_CRITIQUE_NEEDED":
+                 critique_nodes.append({"id": None, "text": opt})
+                 continue
+                 
+            # Extract title for summary
+            summary = opt
+            if "Title:" in opt:
+                try:
+                    parts = opt.replace("Title:", "").split("Critique:", 1)
+                    title = parts[0].strip(" *")
+                    summary = title
+                except:
+                    pass
+            
+            # Add child node
+            cid = add_child(tree, anchor_id, opt, node_type="ai_critique", metadata={"label": summary, "idea_text": opt})
+            critique_nodes.append({"id": cid, "text": opt})
+            
+        return {"mode": "critique", "items": critique_nodes}
 
     if action == ActionType.REFINE:
         refined_text = llm_output.strip()
@@ -185,7 +221,22 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     if action == ActionType.DIVERGE:
         options = parse_llm_options(llm_output)
         for option in options:
-            add_child(tree, anchor_id, option)
+            # Parse Title for cleaner graph label, but keep full text for Pinning
+            label = None
+            if "Title:" in option:
+                try:
+                    parts = option.split("Explanation:", 1)[0]
+                    label = parts.replace("Title:", "").strip(" *")
+                except:
+                   pass
+            
+            # Store full idea text for Pinning Context (Critical Fix)
+            meta = {"idea_text": option}
+            if label:
+                meta["label"] = label
+                
+            add_child(tree, anchor_id, option, metadata=meta)
+            
         return {"mode": "options", "options": options}
 
     return {"status": "error", "message": "Unknown action"}
@@ -196,5 +247,5 @@ def _handle_choose_option(tree: Dict, event_context: Dict[str, Any]) -> Dict:
     current_id = tree["current"]
     children = tree["nodes"][current_id]["children"]
     chosen_child_id = children[option_index]
-    set_current(tree, chosen_child_id)
+    navigate_to_node(tree, chosen_child_id)
     return {"mode": "continue", "current_text": tree["nodes"][chosen_child_id]["summary"]}
