@@ -72,6 +72,22 @@ def render_sidebar_map(tree):
 
     st.sidebar.graphviz_chart(graph, use_container_width=True)
 
+    # 4. Reset Tool
+    st.sidebar.divider()
+    st.sidebar.caption("Reset Workspace", help="Completely wipe the tree and context to start a new session.")
+    if st.sidebar.button("🗑️ Reset Full Tree", help="Permanently delete all branches and start a new session from scratch.", use_container_width=True):
+        st.session_state.tree = init_tree("")
+        st.session_state.pinned_context = []
+        st.session_state.selected_paths = []
+        st.session_state.banned_ideas = []
+        st.session_state.pop("current_critiques", None)
+        st.session_state.pop("comparison_data", None)
+        st.session_state.pop("last_refine_diff", None)
+        # Force editor to refresh (if using the versioning trick)
+        if "editor_version" in st.session_state:
+            st.session_state.editor_version += 1
+        st.rerun()
+
     # 2. Navigation Tools
     st.sidebar.divider()
     st.sidebar.subheader("📍 Navigation", help="Navigate through your thought history. Click on previous nodes to return to them.")
@@ -163,18 +179,5 @@ def render_sidebar_map(tree):
             navigate_to_node(tree, target_node['id'])
             st.rerun()
 
-    # 4. Reset Tool
-    st.sidebar.divider()
-    st.sidebar.caption("Reset Workspace", help="Completely wipe the tree and context to start a new session.")
-    if st.sidebar.button("🗑️ Reset Full Tree", help="Permanently delete all branches and start a new session from scratch.", use_container_width=True):
-        st.session_state.tree = init_tree("")
-        st.session_state.pinned_context = []
-        st.session_state.selected_paths = []
-        st.session_state.banned_ideas = []
-        st.session_state.pop("current_critiques", None)
-        st.session_state.pop("comparison_data", None)
-        st.session_state.pop("last_refine_diff", None)
-        # Force editor to refresh (if using the versioning trick)
-        if "editor_version" in st.session_state:
-            st.session_state.editor_version += 1
-        st.rerun()
+            navigate_to_node(tree, target_node['id'])
+            st.rerun()

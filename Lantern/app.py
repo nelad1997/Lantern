@@ -354,17 +354,23 @@ def main():
                 p_text = item["text"] if is_node else item
                 p_id = item["id"] if is_node else None
 
-                c_txt, c_btns = st.columns([0.7, 0.3])
+                c_txt, c_btns = st.columns([0.85, 0.15])
                 with c_txt:
                     st.markdown(f'<div class="pinned-box">{p_text}</div>', unsafe_allow_html=True)
                 with c_btns:
                     if st.button("❌", key=f"unpin_{i}", help="Unpin", use_container_width=True):
                         st.session_state.pinned_context.pop(i)
                         st.rerun()
-                    if p_id:
-                        if st.button("✔", key=f"sel_p_{i}", help="Navigate to this node", use_container_width=True):
-                            navigate_to_node(tree, p_id)
-                            st.rerun()
+                
+                # Show Select button BELOW the box if it's a node and not current
+                if p_id and p_id != tree["current"]:
+                    if st.button("✔ Select as current path", key=f"sel_p_{i}", help="Navigate to this node and clear context", use_container_width=True):
+                        # Clear context on select as requested
+                        st.session_state.pinned_context = []
+                        st.session_state.selected_paths = []
+                        # Navigate
+                        navigate_to_node(tree, p_id)
+                        st.rerun()
 
             if st.button("Clear Context"):
                 st.session_state.pinned_context = []
