@@ -140,13 +140,14 @@ def main():
             # Perform Navigation
             navigate_to_node(st.session_state.tree, target_node_id)
             
-            # Auto-Pin for context
+            # Auto-Pin for context (SKIP ROOT)
             target_node = st.session_state.tree["nodes"][target_node_id]
-            if not any(item.get("id") == target_node_id for item in st.session_state.pinned_context):
-                st.session_state.pinned_context.append({
-                    "id": target_node_id, 
-                    "text": target_node["summary"]
-                })
+            if target_node["type"] != "root":
+                if not any(item.get("id") == target_node_id for item in st.session_state.pinned_context):
+                    st.session_state.pinned_context.append({
+                        "id": target_node_id, 
+                        "text": target_node["summary"]
+                    })
             
             # Clear query params to prevent reload loop
             st.query_params.clear()
@@ -388,29 +389,18 @@ def main():
                 
                 # Show Select button BELOW the box if it's not the current node
                 if p_id != tree["current"]:
-                    c_s1, c_s2 = st.columns([1, 1])
-                    with c_s1:
-                        if st.button("✔ Focus AI", key=f"sel_p_{i}", help="Direct AI's focus to this idea", use_container_width=True):
-                            target_id = p_id
-                            if not target_id:
-                                from tree import add_child
-                                clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
-                                target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
-                                tree["nodes"][target_id].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
-                                st.session_state.pinned_context[i]["id"] = target_id
-                            
-                            st.session_state.selected_paths = [target_id]
-                            navigate_to_node(tree, target_id)
-                            st.rerun()
-                    
-                    with c_s2:
-                        if p_id: # Only show restore for identified nodes
-                            if st.button("⏪ Restore Text", key=f"res_p_{i}", help="OVERWRITE current editor with this historical version", use_container_width=True):
-                                node_to_restore = tree["nodes"][p_id]
-                                st.session_state["editor_html"] = node_to_restore.get("metadata", {}).get("html", "")
-                                if "editor_version" in st.session_state:
-                                    st.session_state.editor_version += 1
-                                st.rerun()
+                    if st.button("✔ Focus AI", key=f"sel_p_{i}", help="Direct AI's focus to this idea", use_container_width=True):
+                        target_id = p_id
+                        if not target_id:
+                            from tree import add_child
+                            clean_summary = p_text.replace("**", "").replace("Critique: ", "").replace("Suggestion: ", "")
+                            target_id = add_child(tree, current_node["id"], clean_summary, node_type="standard")
+                            tree["nodes"][target_id].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
+                            st.session_state.pinned_context[i]["id"] = target_id
+                        
+                        st.session_state.selected_paths = [target_id]
+                        navigate_to_node(tree, target_id)
+                        st.rerun()
 
             if st.button("Clear all context", help="Wipe all pinned items"):
                 st.session_state.pinned_context = []
