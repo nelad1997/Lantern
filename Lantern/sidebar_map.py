@@ -76,7 +76,12 @@ def render_sidebar_map(tree):
     st.sidebar.divider()
     st.sidebar.caption("Reset Workspace", help="Completely wipe the tree and context to start a new session.")
     if st.sidebar.button("🗑️ Reset Full Tree", help="Permanently delete all branches and start a new session from scratch.", use_container_width=True):
-        st.session_state.tree = init_tree("")
+        # Capture current content to keep it in the new root
+        current_node = tree["nodes"][tree["current"]]
+        curr_summary = current_node.get("summary", "")
+        curr_metadata = current_node.get("metadata", {}).copy()
+        
+        st.session_state.tree = init_tree(curr_summary, curr_metadata)
         st.session_state.pinned_context = []
         st.session_state.selected_paths = []
         st.session_state.banned_ideas = []

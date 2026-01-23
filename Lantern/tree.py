@@ -32,12 +32,13 @@ def create_node(
     }
 
 
-def init_tree(root_summary: str) -> Dict:
+def init_tree(root_summary: str, root_metadata: Optional[Dict] = None) -> Dict:
     """אתחול העץ עם צומת שורש (Root) [cite: 10]"""
     root = create_node(
         summary=root_summary if root_summary else "",
         parent_id=None,
-        node_type="root"
+        node_type="root",
+        metadata=root_metadata
     )
 
     tree = {
