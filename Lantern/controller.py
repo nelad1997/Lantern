@@ -136,7 +136,9 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         )
 
     if pinned_context:
-        constraints.append(f"Pinned context:\n- " + "\n- ".join(pinned_context))
+        # Extract text from both old (string) and new (dict) pinned items
+        pinned_texts = [item["text"] if isinstance(item, dict) else item for item in pinned_context]
+        constraints.append(f"Pinned context:\n- " + "\n- ".join(pinned_texts))
 
     if banned_ids:
         banned_texts = [tree["nodes"][bid]["summary"] for bid in banned_ids if bid in tree["nodes"]]
