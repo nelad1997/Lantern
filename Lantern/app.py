@@ -2,6 +2,7 @@ import streamlit as st
 import base64
 from streamlit_quill import st_quill
 import re
+import json
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
@@ -16,6 +17,25 @@ load_dotenv(override=True)
 # Page Configuration
 # -------------------------------------------------
 st.set_page_config(page_title="Lantern", layout="wide")
+
+
+# -------------------------------------------------
+# Persistence Helpers
+# -------------------------------------------------
+def save_project(tree):
+    return json.dumps(tree, indent=2, ensure_ascii=False)
+
+
+def load_project(json_str):
+    try:
+        data = json.loads(json_str)
+        st.session_state.tree = data
+        st.session_state.banned_ideas = []
+        st.session_state.pinned_context = []
+        return True
+    except Exception as e:
+        st.error(f"Failed to load project: {e}")
+        return False
 
 
 # -------------------------------------------------
@@ -241,6 +261,17 @@ def main():
     # ==========================================
     # SIDEBAR TOOLS
     # ==========================================
+    with st.sidebar:
+        st.markdown("### 💾 Project Management")
+        st.download_button("📥 Export Project (JSON)", data=save_project(tree), file_name="lantern_project.json",
+                           mime="application/json")
+        uploaded_file = st.file_uploader("📤 Load Project", type="json")
+        if uploaded_file:
+            if load_project(uploaded_file.getvalue().decode("utf-8")):
+                st.success("Loaded!");
+                st.rerun()
+        st.divider()
+
     render_sidebar_map(tree)
     
     with st.sidebar.expander("⚖️ Compare Branches", expanded=False):
