@@ -218,7 +218,7 @@ def main():
 
         html_content = st_quill(
             value=current_node.get("metadata", {}).get("html", ""),
-            placeholder="Start drafting your thoughts here... (This is a transparent placeholder)",
+            placeholder="Start drafting your thoughts here...",
             html=True,
             toolbar=[
                 ["bold", "italic", "underline"],
