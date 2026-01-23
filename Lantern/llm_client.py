@@ -11,7 +11,7 @@ from definitions import ActionType
 from prompt_builder import build_prompt
 
 # טעינת משתני סביבה
-load_dotenv()
+load_dotenv(override=True)
 
 # הגדרת לוגר
 logging.basicConfig(level=logging.INFO)

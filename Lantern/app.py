@@ -10,7 +10,7 @@ from controller import handle_event, generate_diff_html, apply_fuzzy_replacement
 from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # -------------------------------------------------
 # Page Configuration
