@@ -16,20 +16,12 @@ def render_sidebar_map(tree):
 
     st.sidebar.subheader("🗺️ Thought Tree")
 
-    # --- מנגנון Bulletproofed Persistent (מונה שלא מתאפס) ---
+    # --- מנגנון Strengthened Persistent (מונה שלא מתאפס) ---
     # יוצרים סט בהיסטוריה אם לא קיים
     if "bulletproof_history" not in st.session_state:
         st.session_state.bulletproof_history = set()
 
-    # עוברים על הפריטים הנעוצים כרגע ומוסיפים להיסטוריה
-    if "pinned_items" in st.session_state.tree:
-        for item in st.session_state.tree["pinned_items"]:
-            if isinstance(item, dict) and item.get("type") == "critique":
-                # משתמשים בטקסט כמזהה ייחודי כי לפעמים אין ID
-                unique_key = item.get("text", "")[:50]  # מספיק לקחת את ההתחלה לזיהוי
-                st.session_state.bulletproof_history.add(unique_key)
-
-    # המונה מבוסס על ההיסטוריה המצטברת
+    # המונה מבוסס על ההיסטוריה המצטברת (מנוהל ידנית ב-app.py)
     critiques_count = len(st.session_state.bulletproof_history)
     # --------------------------------------------------------
 
@@ -38,10 +30,14 @@ def render_sidebar_map(tree):
     paths_explored = max(0, total_nodes - 1)
 
     with st.sidebar.container(border=True):
-        st.markdown("<small><b>🧠 Thinking Depth</b></small>", unsafe_allow_html=True)
+        tooltip_text = "Track your reasoning process with Lantern.&#10;🌱 Paths: Explored alternative reasoning lines.&#10;🛡️ Strengthened: Counts every time you 'Select' a critique (signaling you applied it)."
+        st.markdown(
+            f"<small><b>🧠 Thinking Depth</b></small> <span title=\"{tooltip_text}\" style=\"cursor: help; color: #64748b; font-size: 0.8em;\">ℹ️</span>",
+            unsafe_allow_html=True
+        )
         c_p, c_c = st.columns(2)
         c_p.caption(f"🌱 Paths: {paths_explored}")
-        c_c.caption(f"⚖️ Bulletproofed: {critiques_count}")
+        c_c.markdown(f"<span style='font-size:0.8rem; color:rgb(49, 51, 63);'>🛡️ Strengthened: {critiques_count}</span>", unsafe_allow_html=True)
 
     st.sidebar.markdown("<div style='margin-bottom:15px'></div>", unsafe_allow_html=True)
 

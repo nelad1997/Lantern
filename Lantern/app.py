@@ -181,8 +181,8 @@ st.markdown("""
 .suggestion-card { background-color: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .suggestion-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; }
 .suggestion-text { font-size: 0.95rem; color: #334155; line-height: 1.5; margin-bottom: 12px; }
-.status-pill { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
-.status-explore { background-color: #e0f2fe; color: #0369a1; }
+.status-pill { display: inline-block; padding: 10px 24px; border-radius: 35px; font-size: 1.1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); width: 100%; text-align: center; }
+.status-explore { background-color: #e0f2fe; color: #0369a1; border: 2px solid #bae6fd; }
 .status-reflect { background-color: #fef3c7; color: #92400e; }
 .status-ready { background-color: #f0fdf4; color: #166534; }
 .action-bar {
@@ -198,6 +198,14 @@ st.markdown("""
     color: #475569;
     margin-bottom: 10px;
 }
+/* Enhanced Typography */
+.ql-editor {
+    font-size: 18px !important;
+    line-height: 1.6 !important;
+}
+.ql-container {
+    font-size: 18px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,6 +214,14 @@ st.markdown("""
 # Helpers
 # -------------------------------------------------
 def get_ui_state(tree):
+    if st.session_state.get("is_thinking", False):
+         if st.session_state.pending_action:
+             act = st.session_state.pending_action.get("action")
+             if act == ActionType.DIVERGE: return "Expanding...", "status-explore"
+             if act == ActionType.CRITIQUE: return "Critiquing...", "status-reflect"
+             if act == ActionType.REFINE: return "Refining...", "status-ready"
+         return "Thinking...", "status-explore"
+
     if "last_perspective" in st.session_state:
         return "Reflecting", "status-reflect"
     current_node = get_current_node(tree)
@@ -284,21 +300,23 @@ def main():
 
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
         with c1:
-            if st.button("🌱 Expand", use_container_width=True):
+            if st.button("🌱 Expand", use_container_width=True, help="Generate new perspectives and ideas based on your text"):
                 st.session_state.pending_action = {"action": ActionType.DIVERGE,
                                                    "user_text": st.session_state["focused_text"]}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c2:
-            if st.button("⚖️ Critique", use_container_width=True):
+            if st.button("⚖️ Critique", use_container_width=True, help="Get critical feedback on logic, evidence, and rigor"):
                 st.session_state.pending_action = {"action": ActionType.CRITIQUE,
                                                    "user_text": st.session_state["focused_text"]}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c3:
-            if st.button("✨ Refine", use_container_width=True):
+            if st.button("✨ Refine", use_container_width=True, help="Polish grammar, clarity, and flow"):
                 st.session_state.pending_action = {"action": ActionType.REFINE,
                                                    "user_text": st.session_state["focused_text"]}
+                st.session_state.is_thinking = True
+                st.rerun()
                 st.session_state.is_thinking = True
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -333,8 +351,14 @@ def main():
                     st.rerun()
             html_content = st.session_state["editor_html"]
         else:
+            # Custom CSS to force editor font size inside the iframe
+            EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
+            
+            # Prepend CSS to the value so it renders inside the iframe
+            quill_value = EDITOR_CSS + st.session_state["editor_html"]
+            
             html_content = st_quill(
-                value=st.session_state["editor_html"],
+                value=quill_value,
                 placeholder="Start drafting...",
                 html=True,
                 key=f"quill_main_{st.session_state.editor_version}",
@@ -344,10 +368,23 @@ def main():
         blocks_data = []  # Ensure initialization
 
         if html_content:
-            st.session_state["editor_html"] = html_content
-            current_node.setdefault("metadata", {})["html"] = html_content
-            text_processing = re.sub(r"<(/?p|/?div|/h[1-6])>", "\n\n", html_content).replace("<br>", "\n")
+            # Strip the injected CSS from the output to keep data clean
+            clean_html = html_content.replace(EDITOR_CSS, "")
+            
+            st.session_state["editor_html"] = clean_html
+            current_node.setdefault("metadata", {})["html"] = clean_html
+            
+            # Robust Text Processing (Fixes double counting of paragraphs)
+            # 1. Replace block tags with SINGLE newline first (to avoid gaps)
+            text_processing = re.sub(r"</(p|div|h[1-6])>", "\n", clean_html) 
+            text_processing = re.sub(r"<(p|div|h[1-6])[^>]*>", "", text_processing)
+            # 2. Convert <br> to newline
+            text_processing = text_processing.replace("<br>", "\n")
+            # 3. Strip tags
             plain_text = re.sub("<[^<]+?>", "", text_processing).strip()
+            # 4. Collapse multiple newlines to max 2
+            plain_text = re.sub(r'\n{3,}', '\n\n', plain_text)
+            
             current_node["metadata"]["draft_plain"] = plain_text
 
             if not st.session_state.get("root_topic_resolved", False) and current_node["type"] == "root":
@@ -358,21 +395,35 @@ def main():
                     st.rerun()
 
             blocks = re.findall(r"<(p|h[1-6])[^>]*>(.*?)</\1>", html_content, re.DOTALL)
-            blocks_data = [{"text": re.sub("<[^<]+?>", "", inner).strip(),
-                            "type": "header" if tag.startswith("h") else "paragraph"} for tag, inner in blocks if
-                           inner.strip()]
+            blocks_data = []
+            for tag, inner in blocks:
+                # Clean inner text to check for emptiness (handle &nbsp;)
+                clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
+                if clean_inner:
+                    blocks_data.append({
+                        "text": clean_inner,
+                        "type": "header" if tag.startswith("h") else "paragraph"
+                    })
 
-        focus_mode = st.selectbox("🧠 Focus Lantern on:", ["Whole document", "Specific block"])
-        if focus_mode == "Specific block" and blocks_data:
-            block_idx = st.number_input("Block number", min_value=1, max_value=len(blocks_data), step=1)
-            st.session_state["focused_text"] = blocks_data[block_idx - 1]["text"]
+        focus_mode = st.selectbox("🧠 Focus Lantern on:", ["Whole document", "Specific paragraph"])
+        if focus_mode == "Specific paragraph" and blocks_data:
+            # Filter only paragraphs for the "Paragraph number" selector
+            paragraphs_only = [b for b in blocks_data if b["type"] == "paragraph"]
+            
+            if paragraphs_only:
+                # Use "Paragraph number" as requested
+                block_idx = st.number_input("Paragraph number", min_value=1, max_value=len(paragraphs_only), step=1)
+                st.session_state["focused_text"] = paragraphs_only[block_idx - 1]["text"]
+            else:
+                st.warning("No paragraphs found.")
+                st.session_state["focused_text"] = ""
         else:
             st.session_state["focused_text"] = current_node.get("metadata", {}).get("draft_plain", plain_text)
 
         # ✅ PREVIEW BLOCK
         with st.expander("🔍 AI Focus Preview", expanded=False):
             st.caption("This is the exact text Lantern will analyze:")
-            st.text_area("", value=st.session_state["focused_text"], height=100, disabled=True)
+            st.text_area("", value=st.session_state["focused_text"], height=150, disabled=True)
 
     # ==========================================
     # SIDEBAR TOOLS
@@ -454,9 +505,10 @@ def main():
         st.divider()
 
 
-        # 📌 Pinned Context Section (Scrollable)
+        # 📌 Pinned Context Section (Always Visible)
+        st.markdown("<div style='text-align: right; font-weight: bold; font-size: 1.1em; color: #334155; margin-bottom: 10px;'>📌 Pinned Context</div>", unsafe_allow_html=True)
+        
         if st.session_state.tree["pinned_items"]:
-            st.markdown("<br><b>📌 Pinned Context</b>", unsafe_allow_html=True)
             for i, item in enumerate(st.session_state.tree["pinned_items"]):
                 is_node = isinstance(item, dict)
                 p_text, p_title = (item.get("text", ""), item.get("title", "")) if is_node else (item, "")
@@ -470,12 +522,32 @@ def main():
                     if st.button("❌", key=f"unpin_{i}", use_container_width=True):
                         st.session_state.tree["pinned_items"].pop(i);
                         st.rerun()
+        else:
+             st.markdown(
+                """
+                <div style="
+                    background-color: #f8fafc; 
+                    border: 1px solid #e2e8f0; 
+                    border-radius: 6px; 
+                    padding: 15px; 
+                    text-align: center; 
+                    color: #94a3b8; 
+                    font-size: 0.9rem;">
+                    No items pinned yet. Use "Pin" on suggestions to save context here.
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
 
         st.divider()
 
         # 💡 Critique logic (FIXED: Tooltip + Icon + Format)
         if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
-            st.subheader("💡 Critical Perspective")
+            c_head, c_clear = st.columns([0.8, 0.2])
+            c_head.subheader("💡 Critical Perspective")
+            if c_clear.button("🗑 Clear All", key="clear_all_critiques", use_container_width=True):
+                st.session_state["current_critiques"] = []
+                st.rerun()
 
             for i, item_data in enumerate(list(st.session_state["current_critiques"])):
                 if isinstance(item_data, dict):
@@ -499,10 +571,17 @@ def main():
                         f"<div class='suggestion-text' style='max-height: 200px; overflow-y: auto;'>{text}</div>",
                         unsafe_allow_html=True)
 
-                    c_pin, c_del = st.columns([1, 1])
-
-                    with c_pin:
-                        if st.button("📌 Pin", key=f"cs_pin_{i}", use_container_width=True):
+                    c_sel, c_pin, c_del = st.columns([1, 1, 1])
+                    
+                    with c_sel:
+                         if st.button("✔ Select", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
+                            # Add to persistent history (Increments Strengthened counter)
+                            unique_key = text[:50]
+                            if "bulletproof_history" not in st.session_state:
+                                st.session_state.bulletproof_history = set()
+                            st.session_state.bulletproof_history.add(unique_key)
+                            
+                            # Also Pin it
                             st.session_state.tree["pinned_items"].append({
                                 "id": None,
                                 "title": title,
@@ -512,20 +591,41 @@ def main():
                             st.session_state["current_critiques"].pop(i)
                             st.rerun()
 
+                    with c_pin:
+                        if st.button("📌 Pin", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
+                            st.session_state.tree["pinned_items"].append({
+                                "id": None,
+                                "title": title,
+                                "text": text,
+                                "type": "critique"
+                            })
+                            # User requested NOT to remove it from list when just pinning
+                            st.rerun()
+
                     with c_del:
                         if st.button("🗑 Del", key=f"cs_del_{i}", use_container_width=True):
                             st.session_state["current_critiques"].pop(i)
                             st.rerun()
-
+                            
         # 🌿 Suggested Paths
+        if "dismissed_suggestions" not in st.session_state:
+            st.session_state.dismissed_suggestions = set()
+
         visible_children = []
         for cid in current_node["children"]:
-            if cid not in st.session_state.banned_ideas and not any(
-                    isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]):
+            if cid not in st.session_state.banned_ideas and \
+               cid not in st.session_state.dismissed_suggestions and \
+               not any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]):
                 visible_children.append({"id": cid, "source": "Current"})
 
         if visible_children:
-            st.subheader("Suggested Paths")
+            c_head, c_clear = st.columns([0.8, 0.2])
+            c_head.subheader("Suggested Paths")
+            if c_clear.button("🗑 Clear All", key="clear_all_suggestions", use_container_width=True):
+                 for child_id in [item["id"] for item in visible_children]:
+                     st.session_state.dismissed_suggestions.add(child_id)
+                 st.rerun()
+
             st.caption("Lantern generated alternative reasoning paths. Select one to continue.")
             for item in visible_children:
                 cid = item["id"]
@@ -594,7 +694,7 @@ def main():
                     st.divider()
                     c_sel, c_pin, c_pru = st.columns([1, 1, 1])
                     with c_sel:
-                        if st.button("✔ Select", key=f"s_{cid}", help=f"Academic Principle: {module_tag}",
+                        if st.button("✔ Select", key=f"s_{cid}", help=f"Select this path based on Academic Principle: {module_tag}",
                                      use_container_width=True):
                             pin_obj = {"id": cid, "title": title, "text": explanation, "type": "idea"}
                             st.session_state.tree["pinned_items"].append(pin_obj)
@@ -606,7 +706,7 @@ def main():
                             navigate_to_node(tree, cid);
                             st.rerun()
                     with c_pin:
-                        if st.button("📌 Pin", key=f"p_{cid}", use_container_width=True):
+                        if st.button("📌 Pin", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
                             st.session_state.tree["pinned_items"].append(
                                 {"id": cid, "title": title, "text": explanation, "type": "idea"})
                             st.rerun()
