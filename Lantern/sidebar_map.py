@@ -168,10 +168,26 @@ def render_sidebar_map(tree):
         except:
             current_index = 0
 
+
+        # --- Pre-calculate Unique Labels for Deduplication ---
+        node_id_to_label = {}
+        label_counts = {}
+        for nid in visible_nodes:
+            node = tree["nodes"][nid]
+            base_label = node.get("metadata", {}).get("label", get_node_short_label(node))
+            if base_label == "Idea": base_label = "New Path"
+            
+            if base_label not in label_counts:
+                label_counts[base_label] = 1
+                node_id_to_label[nid] = base_label
+            else:
+                label_counts[base_label] += 1
+                node_id_to_label[nid] = f"{base_label} ({label_counts[base_label]})"
+
         st.selectbox(
             "🎯 Navigate:", 
             options=visible_nodes, 
-            format_func=lambda nid: get_node_short_label(tree["nodes"][nid]), 
+            format_func=lambda nid: node_id_to_label.get(nid, nid), 
             index=current_index, 
             key="nav_selection_box", 
             on_change=handle_navigation,
@@ -199,8 +215,8 @@ def render_sidebar_map(tree):
             else:
                 fill, font, border, width = "#ffffff", "#0f172a", "#94a3b8", "1"
 
-            label_text = node.get("metadata", {}).get("label", get_node_short_label(node))
-            if label_text == "Idea": label_text = "New Path"
+            label_text = node_id_to_label.get(node_id, get_node_short_label(node))
+
             import textwrap
             wrapped = "\n".join(textwrap.wrap(label_text, width=20))
             label = f"⚖️\n{wrapped}" if node.get("type") == "ai_critique" else wrapped

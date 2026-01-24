@@ -402,7 +402,7 @@ def main():
         if "last_refine_diff" in st.session_state:
             st.info("✨ AI Suggested Improvements (Review Mode)")
             st.markdown(
-                f'<div class="scrollable-content" style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem; line-height: 1.6; color: #334155; margin-bottom: 10px;">{st.session_state["last_refine_diff"]}</div>',
+                f'<div class="scrollable-content" style="max-height: 350px; background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem; line-height: 1.6; color: #334155; margin-bottom: 10px;">{st.session_state["last_refine_diff"]}</div>',
                 unsafe_allow_html=True)
             c_acc, c_dis = st.columns([1, 1])
             with c_acc:
@@ -479,6 +479,7 @@ def main():
                 if st.button("❌ Discard", use_container_width=True):
                     del st.session_state["last_refine_diff"], st.session_state["last_refine_text"];
                     st.rerun()
+
             html_content = st.session_state["editor_html"]
         else:
             # שינוי: עטיפת ה-Editor במיכל עם גובה קבוע המאפשר גלילה (ללא border כדי למנוע שגיאות גרסה)
