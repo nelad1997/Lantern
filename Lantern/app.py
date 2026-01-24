@@ -686,183 +686,187 @@ def main():
 
         st.divider()
 
-        # 💡 Critique logic (FIXED: Tooltip + Icon + Format)
-        if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
-            c_head, c_clear = st.columns([0.8, 0.2])
-            c_head.subheader("💡 Critical Perspective")
-            if c_clear.button("🗑 Clear All", key="clear_all_critiques", use_container_width=True):
-                st.session_state["current_critiques"] = []
-                st.rerun()
 
-            for i, item_data in enumerate(list(st.session_state["current_critiques"])):
-                if isinstance(item_data, dict):
-                    title = item_data.get("title", "Critique")
-                    module = item_data.get("module", "Review")
-                    text = item_data.get("text", "")
-                else:
-                    title = "Critique"
-                    module = "Review"
-                    text = item_data
+        # --- NEW: Scrollable Container for Suggestions ---
+        with st.container(height=600):
+            # 💡 Critique logic (FIXED: Tooltip + Icon + Format)
+            if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
+                c_head, c_clear = st.columns([0.8, 0.2])
+                c_head.subheader("💡 Critical Perspective")
+                if c_clear.button("🗑 Clear All", key="clear_all_critiques", use_container_width=True):
+                    st.session_state["current_critiques"] = []
+                    st.rerun()
 
-                with st.container(border=True):
-                    # ✅ FIXED: Title + Info Icon with Tooltip
-                    st.markdown(
-                        f'<b>{title}</b> '
-                        f'<span title="Academic Principle: {module}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
-                        unsafe_allow_html=True
-                    )
+                for i, item_data in enumerate(list(st.session_state["current_critiques"])):
+                    if isinstance(item_data, dict):
+                        title = item_data.get("title", "Critique")
+                        module = item_data.get("module", "Review")
+                        text = item_data.get("text", "")
+                    else:
+                        title = "Critique"
+                        module = "Review"
+                        text = item_data
 
-                    st.markdown(
-                        f'''
-                        <div class="scrollable-content">
-                            {text}
-                        </div>
-                        ''',
-                        unsafe_allow_html=True
-                    )
+                    with st.container(border=True):
+                        # ✅ FIXED: Title + Info Icon with Tooltip
+                        st.markdown(
+                            f'<b>{title}</b> '
+                            f'<span title="Academic Principle: {module}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
+                            unsafe_allow_html=True
+                        )
 
-                    c_sel, c_pin, c_del = st.columns([1, 1, 1])
-                    
-                    with c_sel:
-                         if st.button("✔ Acknowledge Critique", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
-                            # Add to persistent history (Increments Strengthened counter)
-                            unique_key = text[:50]
-                            if "bulletproof_history" not in st.session_state:
-                                st.session_state.bulletproof_history = set()
-                            st.session_state.bulletproof_history.add(unique_key)
-                            
-                            # Also Pin it
-                            st.session_state.tree["pinned_items"].append({
-                                "id": None,
-                                "title": title,
-                                "text": text,
-                                "type": "critique"
-                            })
-                            st.session_state["current_critiques"].pop(i)
-                            st.rerun()
+                        st.markdown(
+                            f'''
+                            <div class="scrollable-content">
+                                {text}
+                            </div>
+                            ''',
+                            unsafe_allow_html=True
+                        )
 
-                    with c_pin:
-                        if st.button("📌 Pin", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
-                            st.session_state.tree["pinned_items"].append({
-                                "id": None,
-                                "title": title,
-                                "text": text,
-                                "type": "critique"
-                            })
-                            # User requested NOT to remove it from list when just pinning
-                            st.rerun()
+                        c_sel, c_pin, c_del = st.columns([1, 1, 1])
+                        
+                        with c_sel:
+                             if st.button("✔ Acknowledge Critique", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
+                                # Add to persistent history (Increments Strengthened counter)
+                                unique_key = text[:50]
+                                if "bulletproof_history" not in st.session_state:
+                                    st.session_state.bulletproof_history = set()
+                                st.session_state.bulletproof_history.add(unique_key)
+                                
+                                # Also Pin it
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": None,
+                                    "title": title,
+                                    "text": text,
+                                    "type": "critique"
+                                })
+                                st.session_state["current_critiques"].pop(i)
+                                st.rerun()
 
-                    with c_del:
-                        if st.button("🗑 Del", key=f"cs_del_{i}", use_container_width=True):
-                            st.session_state["current_critiques"].pop(i)
-                            st.rerun()
-                            
-        # 🌿 Suggested Paths
-        if "dismissed_suggestions" not in st.session_state:
-            st.session_state.dismissed_suggestions = set()
+                        with c_pin:
+                            if st.button("📌 Pin", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": None,
+                                    "title": title,
+                                    "text": text,
+                                    "type": "critique"
+                                })
+                                # User requested NOT to remove it from list when just pinning
+                                st.rerun()
 
-        visible_children = []
-        for cid in current_node["children"]:
-            if cid not in st.session_state.banned_ideas and \
-               cid not in st.session_state.dismissed_suggestions and \
-               not any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]):
-                visible_children.append({"id": cid, "source": "Current"})
+                        with c_del:
+                            if st.button("🗑 Del", key=f"cs_del_{i}", use_container_width=True):
+                                st.session_state["current_critiques"].pop(i)
+                                st.rerun()
+                                
+            # 🌿 Suggested Paths
+            if "dismissed_suggestions" not in st.session_state:
+                st.session_state.dismissed_suggestions = set()
 
-        if visible_children:
-            c_head, c_clear = st.columns([0.8, 0.2])
-            c_head.subheader("Suggested Paths")
-            if c_clear.button("🗑 Clear All", key="clear_all_suggestions", use_container_width=True):
-                 for child_id in [item["id"] for item in visible_children]:
-                     st.session_state.dismissed_suggestions.add(child_id)
-                 st.rerun()
+            visible_children = []
+            for cid in current_node["children"]:
+                if cid not in st.session_state.banned_ideas and \
+                   cid not in st.session_state.dismissed_suggestions and \
+                   not any(isinstance(p, dict) and p.get("id") == cid for p in st.session_state.tree["pinned_items"]):
+                    visible_children.append({"id": cid, "source": "Current"})
 
-            st.caption("Lantern generated alternative reasoning paths. Select one to continue.")
-            for item in visible_children:
-                cid = item["id"]
-                child = tree["nodes"][cid]
-                meta = child.get("metadata", {})
+            if visible_children:
+                c_head, c_clear = st.columns([0.8, 0.2])
+                c_head.subheader("Suggested Paths")
+                if c_clear.button("🗑 Clear All", key="clear_all_suggestions", use_container_width=True):
+                     for child_id in [item["id"] for item in visible_children]:
+                         st.session_state.dismissed_suggestions.add(child_id)
+                     st.rerun()
 
-                title = meta.get("label")
-                explanation = meta.get("explanation")
-                module_tag = meta.get("module", "Logic")
+                st.caption("Lantern generated alternative reasoning paths. Select one to continue.")
+                for item in visible_children:
+                    cid = item["id"]
+                    child = tree["nodes"][cid]
+                    meta = child.get("metadata", {})
 
-                raw_text = child["summary"]
-                if not title or not explanation:
-                    if "Title:" in raw_text:
-                        parts = re.split(r"(Title:|Module:|Explanation:|Critique:)", raw_text)
-                        try:
-                            if "Title:" in parts:
-                                title = parts[parts.index("Title:") + 1].strip().split('\n')[0].strip(" *")
-                            if "Module:" in parts:
-                                module_tag = parts[parts.index("Module:") + 1].strip().split('\n')[0]
-                            if "Explanation:" in parts:
-                                explanation = parts[parts.index("Explanation:") + 1].strip()
-                            else:
+                    title = meta.get("label")
+                    explanation = meta.get("explanation")
+                    module_tag = meta.get("module", "Logic")
+
+                    raw_text = child["summary"]
+                    if not title or not explanation:
+                        if "Title:" in raw_text:
+                            parts = re.split(r"(Title:|Module:|Explanation:|Critique:)", raw_text)
+                            try:
+                                if "Title:" in parts:
+                                    title = parts[parts.index("Title:") + 1].strip().split('\n')[0].strip(" *")
+                                if "Module:" in parts:
+                                    module_tag = parts[parts.index("Module:") + 1].strip().split('\n')[0]
+                                if "Explanation:" in parts:
+                                    explanation = parts[parts.index("Explanation:") + 1].strip()
+                                else:
+                                    explanation = raw_text
+                            except:
+                                title = "Alternative Path"
                                 explanation = raw_text
-                        except:
+                        else:
                             title = "Alternative Path"
                             explanation = raw_text
-                    else:
-                        title = "Alternative Path"
-                        explanation = raw_text
 
-                if explanation:
-                    explanation = re.sub(r'Title:.*?\n', '', explanation, flags=re.IGNORECASE)
-                    explanation = re.sub(r'Module:.*?\n', '', explanation, flags=re.IGNORECASE)
-                    explanation = explanation.replace("Title:", "").replace("Module:", "").replace("Explanation:",
-                                                                                                   "").strip()
+                    if explanation:
+                        explanation = re.sub(r'Title:.*?\n', '', explanation, flags=re.IGNORECASE)
+                        explanation = re.sub(r'Module:.*?\n', '', explanation, flags=re.IGNORECASE)
+                        explanation = explanation.replace("Title:", "").replace("Module:", "").replace("Explanation:",
+                                                                                                       "").strip()
 
-                with st.container(border=True):
-                    st.markdown(
-                        f'<div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>From: {item["source"]}</span></div>',
-                        unsafe_allow_html=True)
+                    with st.container(border=True):
+                        st.markdown(
+                            f'<div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>From: {item["source"]}</span></div>',
+                            unsafe_allow_html=True)
 
-                    # ✅ FIXED: Title + Info Icon with Tooltip
-                    st.markdown(
-                        f'<b>{title}</b> '
-                        f'<span title="Academic Principle: {module_tag}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
-                        unsafe_allow_html=True
-                    )
+                        # ✅ FIXED: Title + Info Icon with Tooltip
+                        st.markdown(
+                            f'<b>{title}</b> '
+                            f'<span title="Academic Principle: {module_tag}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
+                            unsafe_allow_html=True
+                        )
 
-                    st.markdown(
-                        f'''
-                        <div class="scrollable-content">
-                            {explanation}
-                        </div>
-                        ''',
-                        unsafe_allow_html=True
-                    )
+                        st.markdown(
+                            f'''
+                            <div class="scrollable-content">
+                                {explanation}
+                            </div>
+                            ''',
+                            unsafe_allow_html=True
+                        )
 
-                    st.divider()
-                    c_sel, c_pin, c_pru = st.columns([1, 1, 1])
-                    with c_sel:
-                        if st.button("✔ Select", key=f"s_{cid}", help=f"Select this path based on Academic Principle: {module_tag}",
-                                     use_container_width=True):
-                            pin_obj = {"id": cid, "title": title, "text": explanation, "type": "idea"}
-                            st.session_state.tree["pinned_items"].append(pin_obj)
+                        st.divider()
+                        c_sel, c_pin, c_pru = st.columns([1, 1, 1])
+                        with c_sel:
+                            if st.button("✔ Select", key=f"s_{cid}", help=f"Select this path based on Academic Principle: {module_tag}",
+                                         use_container_width=True):
+                                pin_obj = {"id": cid, "title": title, "text": explanation, "type": "idea"}
+                                st.session_state.tree["pinned_items"].append(pin_obj)
 
-                            child.setdefault("metadata", {})["label"] = title
-                            child.setdefault("metadata", {})["explanation"] = explanation
-                            child.setdefault("metadata", {})["html"] = current_node.get("metadata", {}).get("html", "")
-                            child["metadata"]["selected_path"] = True
+                                child.setdefault("metadata", {})["label"] = title
+                                child.setdefault("metadata", {})["explanation"] = explanation
+                                child.setdefault("metadata", {})["html"] = current_node.get("metadata", {}).get("html", "")
+                                child["metadata"]["selected_path"] = True
 
-                            # --- Automatic Sibling Dismissal ---
-                            # Every sibling of the selected node that is currently a suggestion should be dismissed.
-                            for sibling_id in current_node["children"]:
-                                if sibling_id != cid:
-                                    st.session_state.dismissed_suggestions.add(sibling_id)
+                                # --- Automatic Sibling Dismissal ---
+                                # Every sibling of the selected node that is currently a suggestion should be dismissed.
+                                for sibling_id in current_node["children"]:
+                                    if sibling_id != cid:
+                                        st.session_state.dismissed_suggestions.add(sibling_id)
 
-                            navigate_to_node(tree, cid);
-                            st.rerun()
-                    with c_pin:
-                        if st.button("📌 Pin", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
-                            st.session_state.tree["pinned_items"].append(
-                                {"id": cid, "title": title, "text": explanation, "type": "idea"})
-                            st.rerun()
-                    with c_pru:
-                        if st.button("🗑 Del", key=f"pr_{cid}", use_container_width=True):
-                            st.session_state.banned_ideas.append(cid);
-                            st.rerun()
+                                navigate_to_node(tree, cid);
+                                st.rerun()
+                        with c_pin:
+                            if st.button("📌 Pin", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
+                                st.session_state.tree["pinned_items"].append(
+                                    {"id": cid, "title": title, "text": explanation, "type": "idea"})
+                                st.rerun()
+                        with c_pru:
+                            if st.button("🗑 Del", key=f"pr_{cid}", use_container_width=True):
+                                st.session_state.banned_ideas.append(cid);
+                                st.rerun()
+
 
         # Execute pending actions...
         if st.session_state.pending_action and st.session_state.is_thinking:
