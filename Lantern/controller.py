@@ -126,15 +126,21 @@ def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
 
 def parse_llm_options(llm_output: str) -> List[str]:
     """
-    מפרק את פלט ה-LLM לאופציות.
+    מפרק את פלט ה-LLM לאופציות בצורה רובוסטית.
     """
+    # ניקוי פורמטים נפוצים של markdown
     clean_output = llm_output.replace("**Title:**", "Title:").replace("**Title**:", "Title:")
+    clean_output = clean_output.replace("**Module:**", "Module:").replace("**Module**:", "Module:")
+    clean_output = clean_output.replace("**Explanation:**", "Explanation:").replace("**Explanation**:", "Explanation:")
+    clean_output = clean_output.replace("**Critique:**", "Critique:").replace("**Critique**:", "Critique:")
 
+    # אם יש "Title:", ננסה לפצל לפי זה (כולל מספור לפני)
     if "Title:" in clean_output:
-        # פיצול לפי Lookahead של Title
-        candidates = re.split(r"(?=\nTitle:|^Title:)", clean_output.strip())
+        # פיצול לפי התחלות של אפשרויות (Title: או מספר ואז Title:)
+        candidates = re.split(r"(?=\n(?:\d+\.|\*|-)?\s*Title:|^(?:\d+\.|\*|-)?\s*Title:)", clean_output.strip())
         return [c.strip() for c in candidates if c.strip() and "Title:" in c]
 
+    # fallback לשיטה הישנה של בלוקים
     blocks = clean_output.split("\n\n")
     return [block.strip() for block in blocks if len(block.strip()) > 20]
 
@@ -204,16 +210,21 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             explanation = option
 
             try:
-                clean_opt = option.replace("**Title:**", "Title:").replace("**Module:**", "Module:").replace(
-                    "**Explanation:**", "Explanation:")
-
-                title_match = re.search(r"Title:\s*(.*?)(?=\n|Module:|Explanation:|$)", clean_opt, re.IGNORECASE)
-                module_match = re.search(r"Module:\s*(.*?)(?=\n|Explanation:|$)", clean_opt, re.IGNORECASE)
-                exp_match = re.search(r"Explanation:\s*(.*)", clean_opt, re.DOTALL | re.IGNORECASE)
+                # ניקוי כותרות שדה בצורה גמישה
+                clean_opt = option
+                
+                # regex חכם יותר שתופס וריאציות
+                title_match = re.search(r"(?:Title|שם|נושא):\s*(.*?)(?:\n|Module:|מחלקה:|Explanation:|הסבר:|$)", clean_opt, re.IGNORECASE)
+                module_match = re.search(r"(?:Module|מחלקה|עקרון):\s*(.*?)(?:\n|Explanation:|הסבר:|$)", clean_opt, re.IGNORECASE)
+                # Explanation/Critique as synonyms
+                exp_match = re.search(r"(?:Explanation|Critique|הסבר|ביקורת):\s*(.*)", clean_opt, re.DOTALL | re.IGNORECASE)
 
                 if title_match: title = title_match.group(1).strip(" *")
                 if module_match: module = module_match.group(1).strip()
                 if exp_match: explanation = exp_match.group(1).strip()
+                else:
+                    # אם לא מצאנו Explanation רשמי, ניקח את הכל אחרי ה-Module או ה-Title
+                    explanation = re.sub(r"^(?:Title|Module).*?\n", "", clean_opt, flags=re.MULTILINE | re.IGNORECASE).strip()
             except:
                 pass
 

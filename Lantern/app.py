@@ -783,6 +783,13 @@ def main():
                             child.setdefault("metadata", {})["label"] = title
                             child.setdefault("metadata", {})["explanation"] = explanation
                             child.setdefault("metadata", {})["html"] = current_node.get("metadata", {}).get("html", "")
+                            child["metadata"]["selected_path"] = True
+
+                            # --- Automatic Sibling Dismissal ---
+                            # Every sibling of the selected node that is currently a suggestion should be dismissed.
+                            for sibling_id in current_node["children"]:
+                                if sibling_id != cid:
+                                    st.session_state.dismissed_suggestions.add(sibling_id)
 
                             navigate_to_node(tree, cid);
                             st.rerun()

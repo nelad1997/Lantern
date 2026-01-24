@@ -124,6 +124,9 @@ def render_sidebar_map(tree):
             fill, font, border, width = "#dcfce7", "#14532d", "#22c55e", "3"
         elif is_current:
             fill, font, border, width = "#7c3aed", "white", "#5b21b6", "4"
+        elif node.get("metadata", {}).get("selected_path"):
+            # A node that was explicitly selected from suggestions
+            fill, font, border, width = "#fff7ed", "#9a3412", "#f97316", "2"
         else:
             fill, font, border, width = "#ffffff", "#0f172a", "#94a3b8", "1"
 
