@@ -313,10 +313,15 @@ def main():
                 st.rerun()
         with c3:
             if st.button("✨ Refine", use_container_width=True, help="Polish grammar, clarity, and flow"):
+                # Capture Context
+                context = {
+                    "mode": st.session_state.get("promo_focus_mode", "Whole document"),
+                    "block_idx": st.session_state.get("promo_block_selector", 1)
+                }
+                
                 st.session_state.pending_action = {"action": ActionType.REFINE,
-                                                   "user_text": st.session_state["focused_text"]}
-                st.session_state.is_thinking = True
-                st.rerun()
+                                                   "user_text": st.session_state["focused_text"],
+                                                   "context": context}
                 st.session_state.is_thinking = True
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -340,13 +345,72 @@ def main():
             with c_acc:
                 if st.button("✅ Accept Changes", use_container_width=True, type="primary"):
                     new_text = st.session_state["last_refine_text"]
-                    st.session_state["editor_html"] = new_text
-                    current_node.setdefault("metadata", {})["html"] = new_text
+                    
+                    # Context Parsing
+                    ctx = st.session_state.get("last_refine_context", {})
+                    mode = ctx.get("mode", "Whole document")
+                    
+                    if mode == "Specific paragraph":
+                        # Smart Splicing Logic
+                        # 1. Get full HTML
+                        full_html = st.session_state["editor_html"]
+                        # 2. Find all blocks again
+                        blocks = list(re.finditer(r"<(p|h[1-6])[^>]*>(.*?)</\1>", full_html, re.DOTALL | re.IGNORECASE))
+                        
+                        target_idx = ctx.get("block_idx", 1) - 1 # 1-based to 0-based
+                        
+                        # Filter blocks same way as UI (ignore headers if heuristic applies, etc) - SIMPLIFIED FOR ROBUSTNESS
+                        # To match exactly what user selected, we need to rebuild the filtered list index
+                        # But here we simply assume the filtered list in UI maps 1:1 if we apply same filter
+                        
+                        # Re-filtering to find the correct match in the raw list
+                        filtered_indices = []
+                        for i, m in enumerate(blocks):
+                            tag = m.group(1)
+                            inner = m.group(2)
+                            clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
+                            if clean_inner:
+                                block_type = "header" if tag.lower().startswith("h") else "paragraph"
+                                if block_type == "paragraph" and len(clean_inner) < 100:
+                                     if re.search(r"<(strong|b)[^>]*>.*?</(strong|b)>", inner, re.DOTALL | re.IGNORECASE):
+                                         inner_no_tags = re.sub("<[^<]+?>", "", inner).strip()
+                                         if len(inner_no_tags) <= len(clean_inner) + 5:
+                                             block_type = "header"
+                                if block_type == "paragraph":
+                                    filtered_indices.append(i)
+                        
+                        if 0 <= target_idx < len(filtered_indices):
+                            real_match_idx = filtered_indices[target_idx]
+                            match = blocks[real_match_idx]
+                            start, end = match.span()
+                            
+                            # Construct replacement (wrap in <p> if plain text, or try to keep tag?)
+                            # The refined text usually comes back as plain text or wrapped.
+                            # We'll assume the LLM might strip tags, so we wrap in <p> if it looks like raw text.
+                            replacement_block = new_text
+                            if not replacement_block.strip().startswith("<"):
+                                replacement_block = f"<p>{replacement_block}</p>"
+                            
+                            # Replace in full string
+                            final_html = full_html[:start] + replacement_block + full_html[end:]
+                            st.session_state["editor_html"] = final_html
+                            current_node.setdefault("metadata", {})["html"] = final_html
+                        else:
+                             # Fallback if index mismatch
+                             st.warning("Could not locate original paragraph to replace. Appending to end.")
+                             st.session_state["editor_html"] += f"<br>{new_text}"
+                             current_node.setdefault("metadata", {})["html"] = st.session_state["editor_html"]
+
+                    else:
+                        # Replace Whole Document
+                        st.session_state["editor_html"] = new_text
+                        current_node.setdefault("metadata", {})["html"] = new_text
 
                     # Force Editor Refresh
                     st.session_state.editor_version += 1
 
                     del st.session_state["last_refine_diff"], st.session_state["last_refine_text"]
+                    if "last_refine_context" in st.session_state: del st.session_state["last_refine_context"]
                     st.rerun()
             with c_dis:
                 if st.button("❌ Discard", use_container_width=True):
@@ -395,25 +459,35 @@ def main():
                     st.session_state.root_topic_resolved = True;
                     st.rerun()
 
-            blocks = re.findall(r"<(p|h[1-6])[^>]*>(.*?)</\1>", html_content, re.DOTALL)
+            blocks = re.findall(r"<(p|h[1-6])[^>]*>(.*?)</\1>", html_content, re.DOTALL | re.IGNORECASE)
             blocks_data = []
             for tag, inner in blocks:
                 # Clean inner text to check for emptiness (handle &nbsp;)
                 clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
                 if clean_inner:
+                    block_type = "header" if tag.lower().startswith("h") else "paragraph"
+                    
+                    # Heuristic: If it's a short bold paragraph, likely a title
+                    if block_type == "paragraph" and len(clean_inner) < 100:
+                         if re.search(r"<(strong|b)[^>]*>.*?</(strong|b)>", inner, re.DOTALL | re.IGNORECASE):
+                             # Check if the bold covers most of the content
+                             inner_no_tags = re.sub("<[^<]+?>", "", inner).strip()
+                             if len(inner_no_tags) <= len(clean_inner) + 5: # Tolerance
+                                 block_type = "header"
+
                     blocks_data.append({
                         "text": clean_inner,
-                        "type": "header" if tag.startswith("h") else "paragraph"
+                        "type": block_type
                     })
 
-        focus_mode = st.selectbox("🧠 Focus Lantern on:", ["Whole document", "Specific paragraph"])
+        focus_mode = st.selectbox("🧠 Focus Lantern on:", ["Whole document", "Specific paragraph"], key="promo_focus_mode")
         if focus_mode == "Specific paragraph" and blocks_data:
             # Filter only paragraphs for the "Paragraph number" selector
             paragraphs_only = [b for b in blocks_data if b["type"] == "paragraph"]
             
             if paragraphs_only:
                 # Use "Paragraph number" as requested
-                block_idx = st.number_input("Paragraph number", min_value=1, max_value=len(paragraphs_only), step=1)
+                block_idx = st.number_input("Paragraph number", min_value=1, max_value=len(paragraphs_only), step=1, key="promo_block_selector")
                 st.session_state["focused_text"] = paragraphs_only[block_idx - 1]["text"]
             else:
                 st.warning("No paragraphs found.")
@@ -421,10 +495,16 @@ def main():
         else:
             st.session_state["focused_text"] = current_node.get("metadata", {}).get("draft_plain", plain_text)
 
-        # ✅ PREVIEW BLOCK
-        with st.expander("🔍 AI Focus Preview", expanded=False):
-            st.caption("This is the exact text Lantern will analyze:")
-            st.text_area("", value=st.session_state["focused_text"], height=150, disabled=True)
+        # ✅ PREVIEW BLOCK (Hidden when in Refine Review Mode OR Thinking about Refine)
+        is_refining = st.session_state.get("pending_action", {}) and \
+                      st.session_state.pending_action.get("action") == ActionType.REFINE and \
+                      st.session_state.is_thinking
+
+        if "last_refine_diff" not in st.session_state and not is_refining:
+            with st.expander("🔍 AI Focus Preview", expanded=False):
+                st.caption("This is the exact text Lantern will analyze:")
+                st.text_area("", value=st.session_state["focused_text"], height=150, disabled=True)
+
 
     # ==========================================
     # SIDEBAR TOOLS
@@ -735,6 +815,7 @@ def main():
                         st.session_state["last_refine_diff"] = response.get("diff_html")
                         st.session_state["last_refine_text"] = response.get("refined_text")
                         st.session_state["last_refine_original_target"] = payload["user_text"]
+                        st.session_state["last_refine_context"] = payload.get("context", {})
                 except Exception as e:
                     st.error(f"❌ Gemini Error: {e}")
                 finally:

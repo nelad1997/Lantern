@@ -19,8 +19,8 @@ def load_academic_principles() -> str:
     return ""
 
 
-def generate_diff_html(old_text: str, new_text: str) -> str:
-    """משווה בין טקסטים ויוצר HTML עם שינויים."""
+def generate_diff_html_legacy(old_text: str, new_text: str) -> str:
+    """Legacy: Simple word-based diff (destroys paragraph structure)."""
     output = []
     matcher = difflib.SequenceMatcher(None, old_text.split(), new_text.split())
 
@@ -40,6 +40,59 @@ def generate_diff_html(old_text: str, new_text: str) -> str:
             output.append(" ".join(old_text.split()[i1:i2]))
 
     return " ".join(output)
+
+
+def _diff_paragraph_content(old_p: str, new_p: str) -> str:
+    """Helper: Performs word-level diff on a single paragraph."""
+    # Uses the legacy logic for internal paragraph content
+    return generate_diff_html_legacy(old_p, new_p)
+
+
+def generate_diff_html(old_text: str, new_text: str) -> str:
+    """
+    Inline diff that preserves paragraph structure (newlines).
+    1. Replaces newlines with a unique token.
+    2. Diffs as a single word stream.
+    3. Reconstructs with <br> tags.
+    """
+    token = "__BR_TOKEN__"
+    # Pad newlines with spaces to ensure they are treated as standalone tokens
+    old_tokenized = old_text.replace('\n', f" {token} ")
+    new_tokenized = new_text.replace('\n', f" {token} ")
+
+    output = []
+    # Split by whitespace
+    old_words = old_tokenized.split()
+    new_words = new_tokenized.split()
+
+    matcher = difflib.SequenceMatcher(None, old_words, new_words)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            old_part = " ".join(old_words[i1:i2])
+            new_part = " ".join(new_words[j1:j2])
+            # Restore newlines inside the tags if any
+            old_part = old_part.replace(token, "<br>")
+            new_part = new_part.replace(token, "<br>")
+            output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{old_part}</span>')
+            output.append(f'<span style="color:#10b981; font-weight:bold;">{new_part}</span>')
+        elif tag == 'delete':
+            deleted_part = " ".join(old_words[i1:i2])
+            deleted_part = deleted_part.replace(token, "<br>")
+            output.append(f'<span style="color:#ef4444; text-decoration:line-through;">{deleted_part}</span>')
+        elif tag == 'insert':
+            added_part = " ".join(new_words[j1:j2])
+            added_part = added_part.replace(token, "<br>")
+            output.append(f'<span style="color:#10b981; font-weight:bold;">{added_part}</span>')
+        elif tag == 'equal':
+            part = " ".join(old_words[i1:i2])
+            part = part.replace(token, "<br>")
+            output.append(part)
+
+    # Join and cleanup extra spaces around <br> tags to prevent "floating" punctuation or gaps
+    res = " ".join(output)
+    res = res.replace(" <br> ", "<br>").replace("<br> ", "<br>").replace(" <br>", "<br>")
+    return res
 
 
 # --- הפונקציה שהייתה חסרה והוחזרה ---
