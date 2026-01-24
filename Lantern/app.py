@@ -206,6 +206,25 @@ st.markdown("""
 .ql-container {
     font-size: 18px !important;
 }
+/* Consistent Scrollable Content for all panels */
+.scrollable-content {
+    max-height: 250px;
+    overflow-y: auto;
+    background-color: #f8fafc;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.9em;
+    color: #475569;
+}
+/* Scrollbar styling */
+.scrollable-content::-webkit-scrollbar {
+    width: 6px;
+}
+.scrollable-content::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 3px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -339,7 +358,7 @@ def main():
         if "last_refine_diff" in st.session_state:
             st.info("✨ AI Suggested Improvements (Review Mode)")
             st.markdown(
-                f'<div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem; line-height: 1.6; color: #334155; margin-bottom: 10px;">{st.session_state["last_refine_diff"]}</div>',
+                f'<div class="scrollable-content" style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.9rem; line-height: 1.6; color: #334155; margin-bottom: 10px;">{st.session_state["last_refine_diff"]}</div>',
                 unsafe_allow_html=True)
             c_acc, c_dis = st.columns([1, 1])
             with c_acc:
@@ -597,7 +616,7 @@ def main():
                 c_txt, c_btns = st.columns([0.85, 0.15])
                 with c_txt:
                     st.markdown(
-                        f'<div class="pinned-box" style="max-height:150px; overflow-y:auto;">{display_html}</div>',
+                        f'<div class="pinned-box scrollable-content" style="max-height:150px;">{display_html}</div>',
                         unsafe_allow_html=True)
                 with c_btns:
                     if st.button("❌", key=f"unpin_{i}", use_container_width=True):
@@ -649,7 +668,7 @@ def main():
                     )
 
                     st.markdown(
-                        f"<div class='suggestion-text' style='max-height: 200px; overflow-y: auto;'>{text}</div>",
+                        f"<div class='suggestion-text scrollable-content'>{text}</div>",
                         unsafe_allow_html=True)
 
                     c_sel, c_pin, c_del = st.columns([1, 1, 1])
@@ -757,15 +776,7 @@ def main():
 
                     st.markdown(
                         f'''
-                        <div style="
-                            max-height: 200px; 
-                            overflow-y: auto; 
-                            background-color: #f8fafc; 
-                            padding: 8px; 
-                            border-radius: 4px; 
-                            border: 1px solid #e2e8f0;
-                            font-size: 0.9em; 
-                            color: #475569;">
+                        <div class="scrollable-content">
                             {explanation}
                         </div>
                         ''',

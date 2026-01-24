@@ -40,6 +40,21 @@ def render_sidebar_map(tree):
         c_c.markdown(f"<span style='font-size:0.8rem; color:rgb(49, 51, 63);'>🛡️ Strengthened: {critiques_count}</span>", unsafe_allow_html=True)
 
     st.sidebar.markdown("<div style='margin-bottom:15px'></div>", unsafe_allow_html=True)
+    
+    # Toggle to show tree in main area
+    c_toggle, c_info = st.sidebar.columns([0.85, 0.15])
+    with c_toggle:
+        show_full = st.toggle("🖥️ Full-Width Tree View", key="show_full_tree_toggle")
+    with c_info:
+        st.markdown(
+            '<span title="Opens a large, high-resolution version of the Thought Tree at the bottom of the main editor for complex branch analysis." style="cursor: help; font-size: 1.2em; display: inline-block; margin-top: 5px;">ℹ️</span>',
+            unsafe_allow_html=True
+        )
+    
+    if show_full:
+        st.session_state["show_full_tree"] = True
+    else:
+        st.session_state["show_full_tree"] = False
 
     # סינון צמתים
     visible_nodes = []
@@ -147,22 +162,78 @@ def render_sidebar_map(tree):
             graph.edge(node["parent"], node_id)
 
     try:
+        # Generate SVG
         svg = graph.pipe(format='svg').decode('utf-8')
+        
+        # Enhanced Container: 
+        # - Clickable for full screen? (Not easily in Streamlit)
+        # - Larger max-height
+        # - Transparent background to blend? No, white is better for contrast.
         st.sidebar.markdown(
-            f'<div style="overflow-x: auto; overflow-y: auto; max-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">{svg}</div>',
+            f'''
+            <div style="
+                overflow: auto; 
+                max-height: 600px; 
+                border: 1px solid #e2e8f0; 
+                border-radius: 8px; 
+                background: white;
+                padding: 10px;
+            ">
+                <style>
+                    svg {{ 
+                        width: auto !important; 
+                        height: auto !important; 
+                        display: block;
+                        margin: 0;
+                    }}
+                </style>
+                {svg}
+            </div>
+            ''',
             unsafe_allow_html=True)
-    except:
+    except Exception as e:
+        # Fallback to standard chart if Graphviz bin is missing
         st.sidebar.graphviz_chart(graph, use_container_width=True)
+
+    # --- Main View Expansion ---
+    if st.session_state.get("show_full_tree"):
+        # We render a large version at the bottom of the main area (if called from a place that has main access)
+        # Note: Since this is called in app.py after columns are defined, we might need to be careful.
+        # But in Streamlit, st.graphviz_chart will just append to the current vertical flow.
+        with st.expander("🗺️ Expanded Thought Tree", expanded=True):
+            st.graphviz_chart(graph, use_container_width=True)
 
     # כפתור איפוס
     st.sidebar.divider()
     st.sidebar.caption("Reset Workspace")
     if st.sidebar.button("🗑️ Reset Full Tree", help="Delete all branches and context.", use_container_width=True):
-        st.session_state.tree = {"nodes": {}, "current": ""}
-        st.session_state.clear()
-        # איפוס גם להיסטוריית הביקורות
-        if "bulletproof_history" in st.session_state:
-            del st.session_state["bulletproof_history"]
+        # 1. Preserve Editor & KB State
+        editor_html = st.session_state.get("editor_html", "")
+        editor_version = st.session_state.get("editor_version", 0)
+        kb = st.session_state.get("knowledge_base", {})
+        
+        # 2. Surgical Reset of Tree-related State
+        from tree import init_tree
+        st.session_state.tree = init_tree("")
+        # Restore editor content to the NEW root node
+        root_id = st.session_state.tree["current"]
+        st.session_state.tree["nodes"][root_id].setdefault("metadata", {})["html"] = editor_html
+        
+        # 3. Clear transient states
+        st.session_state.banned_ideas = []
+        st.session_state.dismissed_suggestions = set()
+        st.session_state.bulletproof_history = set()
+        st.session_state.selected_paths = []
+        
+        if "current_critiques" in st.session_state: 
+            st.session_state.current_critiques = []
+        if "last_refine_diff" in st.session_state: 
+            del st.session_state["last_refine_diff"]
+
+        # Preserve the knowledge base
+        st.session_state.knowledge_base = kb
+        st.session_state.editor_version = editor_version
+        st.session_state.root_topic_resolved = False
 
         if os.path.exists("lantern_autosave.json"):
             try:
