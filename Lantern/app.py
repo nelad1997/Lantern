@@ -328,6 +328,9 @@ def main():
                 current_node.setdefault("metadata", {})[
                     "html"] = f"<p>{current_node['summary'].replace(chr(10), '<br>')}</p>"
 
+        # Custom CSS to force editor font size inside the iframe (Defined here to be available globally)
+        EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
+
         if "last_refine_diff" in st.session_state:
             st.info("✨ AI Suggested Improvements (Review Mode)")
             st.markdown(
@@ -351,8 +354,6 @@ def main():
                     st.rerun()
             html_content = st.session_state["editor_html"]
         else:
-            # Custom CSS to force editor font size inside the iframe
-            EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
             
             # Prepend CSS to the value so it renders inside the iframe
             quill_value = EDITOR_CSS + st.session_state["editor_html"]
