@@ -208,22 +208,66 @@ st.markdown("""
 }
 /* Consistent Scrollable Content for all panels */
 .scrollable-content {
-    max-height: 250px;
-    overflow-y: auto;
+    max-height: 180px; 
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    display: block !important;
+    width: 100%;
+    margin-bottom: 20px; 
     background-color: #f8fafc;
-    padding: 8px;
-    border-radius: 4px;
+    padding: 12px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
-    font-size: 0.9em;
-    color: #475569;
+    font-size: 0.92rem;
+    color: #334155;
+    line-height: 1.5;
+    white-space: pre-wrap; /* Preserves line breaks from AI */
 }
-/* Scrollbar styling */
+/* Custom Scrollbar */
 .scrollable-content::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+    height: 8px;
 }
 .scrollable-content::-webkit-scrollbar-thumb {
     background-color: #cbd5e1;
-    border-radius: 3px;
+    border-radius: 4px;
+}
+.scrollable-content::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+/* Force sidebar to allow overflow/scrolling in child elements */
+[data-testid="stSidebar"] > div:first-child {
+    overflow: visible !important;
+}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    overflow: visible !important;
+}
+/* Specific tree scroll container - ChatGPT fix */
+.tree-scroll-box {
+    max-height: 55vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+}
+.tree-scroll-box svg {
+    height: auto !important;
+    max-width: 100%;
+}
+
+/* New IMG-based scrolling solution */
+.tree-scroll-img {
+    max-height: 55vh;
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+}
+.tree-scroll-img img {
+    display: block;
+    width: auto !important;
+    max-width: none !important; 
 }
 </style>
 """, unsafe_allow_html=True)
@@ -352,7 +396,7 @@ def main():
                 current_node.setdefault("metadata", {})[
                     "html"] = f"<p>{current_node['summary'].replace(chr(10), '<br>')}</p>"
 
-        # Custom CSS to force editor font size inside the iframe (Defined here to be available globally)
+        # Custom CSS to force editor font size inside the iframe
         EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
 
         if "last_refine_diff" in st.session_state:
@@ -437,16 +481,17 @@ def main():
                     st.rerun()
             html_content = st.session_state["editor_html"]
         else:
-            
-            # Prepend CSS to the value so it renders inside the iframe
-            quill_value = EDITOR_CSS + st.session_state["editor_html"]
-            
-            html_content = st_quill(
-                value=quill_value,
-                placeholder="Start drafting...",
-                html=True,
-                key=f"quill_main_{st.session_state.editor_version}",
-            )
+            # שינוי: עטיפת ה-Editor במיכל עם גובה קבוע המאפשר גלילה (ללא border כדי למנוע שגיאות גרסה)
+            with st.container(height=600):
+                # Prepend CSS to the value so it renders inside the iframe
+                quill_value = EDITOR_CSS + st.session_state["editor_html"]
+                
+                html_content = st_quill(
+                    value=quill_value,
+                    placeholder="Start drafting...",
+                    html=True,
+                    key=f"quill_main_{st.session_state.editor_version}",
+                )
 
         plain_text = ""
         blocks_data = []  # Ensure initialization
@@ -668,13 +713,18 @@ def main():
                     )
 
                     st.markdown(
-                        f"<div class='suggestion-text scrollable-content'>{text}</div>",
-                        unsafe_allow_html=True)
+                        f'''
+                        <div class="scrollable-content">
+                            {text}
+                        </div>
+                        ''',
+                        unsafe_allow_html=True
+                    )
 
                     c_sel, c_pin, c_del = st.columns([1, 1, 1])
                     
                     with c_sel:
-                         if st.button("✔ Select", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
+                         if st.button("✔ Acknowledge Critique", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
                             # Add to persistent history (Increments Strengthened counter)
                             unique_key = text[:50]
                             if "bulletproof_history" not in st.session_state:
