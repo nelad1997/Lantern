@@ -247,7 +247,7 @@ def render_sidebar_map(tree):
         # --- Reset Button (Moved back to the bottom) ---
         st.divider()
         st.caption("Workspace Management")
-        if st.button("🗑️ Reset Full Tree", help="Delete all branches and context.", use_container_width=True):
+        if st.button("🗑", help="Reset Full Tree: Delete all branches and context.", use_container_width=True):
             editor_html = st.session_state.get("editor_html", "")
             editor_version = st.session_state.get("editor_version", 0)
             kb = st.session_state.get("knowledge_base", {})

@@ -484,6 +484,22 @@ def main():
         else:
             # שינוי: עטיפת ה-Editor במיכל עם גובה קבוע המאפשר גלילה (ללא border כדי למנוע שגיאות גרסה)
             with st.container(height=600):
+                # Small Floating Clear Button inside container
+                st.markdown(
+                    """
+                    <div style="position: relative; height: 0; z-index: 1000; text-align: right; top: 10px; right: 10px; pointer-events: none;">
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+                
+                # Use columns for right-alignment of the button
+                c_btn_1, c_btn_2 = st.columns([0.94, 0.06])
+                if c_btn_2.button("🗑", help="Clear Editor: Delete the current draft text.", key="clear_editor_integrated"):
+                    st.session_state["editor_html"] = ""
+                    current_node.setdefault("metadata", {})["html"] = ""
+                    st.session_state.editor_version += 1
+                    st.rerun()
+
                 # Prepend CSS to the value so it renders inside the iframe
                 quill_value = EDITOR_CSS + st.session_state["editor_html"]
                 
@@ -545,7 +561,24 @@ def main():
                         "type": block_type
                     })
 
-        focus_mode = st.selectbox("🧠 Focus Lantern on:", ["Whole document", "Specific paragraph"], key="promo_focus_mode")
+        # Custom Label with Tooltip
+        focus_info = (
+            "Select how Lantern processes your draft:&#10;&#10;"
+            "📄 Whole Document: Best for overall flow, structure, and consistency. "
+            "Lantern looks at everything to ensure your argument is coherent throughout.&#10;&#10;"
+            "🎯 Specific Paragraph: Perfect for granular polish and logical rigor. "
+            "Lantern zooms in on one section to provide highly precise, detailed suggestions without surrounding distractions.&#10;&#10;"
+            "👀 Note: You can view exactly what text is being sent to the agent in the 'AI Focus Preview' section below."
+        )
+        st.markdown(
+            f'<div style="display: flex; align-items: center; gap: 5px; margin-bottom: -15px;">'
+            f'<span style="font-size: 1rem;">🧠 Focus Lantern on:</span>'
+            f'<span title="{focus_info}" style="cursor: help; color: #64748b; font-size: 0.9em;">ℹ️</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        focus_mode = st.selectbox("", ["Whole document", "Specific paragraph"], key="promo_focus_mode", label_visibility="visible")
+
         if focus_mode == "Specific paragraph" and blocks_data:
             # Filter only paragraphs for the "Paragraph number" selector
             paragraphs_only = [b for b in blocks_data if b["type"] == "paragraph"]
@@ -601,7 +634,8 @@ def main():
         c_io_1, c_io_2 = st.columns([1, 1])
 
         with c_io_1:
-            with st.popover("📥 Import", use_container_width=True):
+            import_tooltip = "Import a DOCX or PDF file to replace the current text in the editor."
+            with st.popover("📥 Import", use_container_width=True, help=import_tooltip):
                 uploaded_doc = st.file_uploader("Upload DOCX/PDF to replace content", type=["pdf", "docx", "txt", "md"],
                                                 key="doc_import_right")
                 if uploaded_doc:
@@ -621,7 +655,8 @@ def main():
                                 st.rerun()
 
         with c_io_2:
-            with st.popover("📤 Export", use_container_width=True):
+            export_tooltip = "Export your draft to DOCX or PDF format."
+            with st.popover("📤 Export", use_container_width=True, help=export_tooltip):
                 export_text = current_node.get("metadata", {}).get("draft_plain", "")
                 if not export_text and "editor_html" in st.session_state:
                     export_text = re.sub("<[^<]+?>", "", st.session_state["editor_html"]).strip()
@@ -694,7 +729,7 @@ def main():
             if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
                 c_head, c_clear = st.columns([0.8, 0.2])
                 c_head.subheader("💡 Critical Perspective")
-                if c_clear.button("🗑 Clear All", key="clear_all_critiques", use_container_width=True):
+                if c_clear.button("🗑", key="clear_all_critiques", help="Clear All Critiques", use_container_width=True):
                     st.session_state["current_critiques"] = []
                     st.rerun()
 
@@ -757,7 +792,7 @@ def main():
                                 st.rerun()
 
                         with c_del:
-                            if st.button("🗑 Del", key=f"cs_del_{i}", use_container_width=True):
+                            if st.button("🗑", key=f"cs_del_{i}", help="Delete this critique", use_container_width=True):
                                 st.session_state["current_critiques"].pop(i)
                                 st.rerun()
                                 
@@ -775,7 +810,7 @@ def main():
             if visible_children:
                 c_head, c_clear = st.columns([0.8, 0.2])
                 c_head.subheader("Suggested Paths")
-                if c_clear.button("🗑 Clear All", key="clear_all_suggestions", use_container_width=True):
+                if c_clear.button("🗑", key="clear_all_suggestions", help="Clear All Suggestions", use_container_width=True):
                      for child_id in [item["id"] for item in visible_children]:
                          st.session_state.dismissed_suggestions.add(child_id)
                      st.rerun()
@@ -864,7 +899,7 @@ def main():
                                     {"id": cid, "title": title, "text": explanation, "type": "idea"})
                                 st.rerun()
                         with c_pru:
-                            if st.button("🗑 Del", key=f"pr_{cid}", use_container_width=True):
+                            if st.button("🗑", key=f"pr_{cid}", help="Delete this suggestion", use_container_width=True):
                                 st.session_state.banned_ideas.append(cid);
                                 st.rerun()
 
