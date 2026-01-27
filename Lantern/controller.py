@@ -348,10 +348,20 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     
     final_user_text = user_text
     if focus_mode == "Whole document" and user_text:
-        # Inject [PX] markers into the text for the AI
-        paras = [p.strip() for p in user_text.split("\n") if p.strip()]
-        marked_paras = [f"[P{i+1}] {p}" for i, p in enumerate(paras)]
-        final_user_text = "\n\n".join(marked_paras)
+        # Check for logical paragraphs provided by the UI state
+        logical_paras = event_context.get("logical_paragraphs", [])
+        if logical_paras:
+             # Construct the prompt text using the logical structure
+             marked_paras = []
+             for i, p in enumerate(logical_paras):
+                 if p.strip():
+                     marked_paras.append(f"[P{i+1}] {p.strip()}")
+             final_user_text = "\n\n".join(marked_paras)
+        else:
+             # Fallback to simple split (with a bit more robustness)
+             paras = [p.strip() for p in user_text.split("\n") if p.strip()]
+             marked_paras = [f"[P{i+1}] {p}" for i, p in enumerate(paras)]
+             final_user_text = "\n\n".join(marked_paras)
         
         constraints.append(
             "MANDATORY CITATION RULE:\n"
@@ -388,7 +398,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 # Explanation/Critique as synonyms
                 exp_match = re.search(r"(?:Explanation|Critique|הסבר|ביקורת):\s*(.*)", clean_opt, re.DOTALL | re.IGNORECASE)
 
-                if title_match: title = title_match.group(1).strip(" *")
+                if title_match: 
+                    title = title_match.group(1).strip(" *")
+                    # Standarize [PX] in title if present
+                    para_match = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
+                    if para_match:
+                        marker = para_match.group(1).upper().replace(" ", "")
+                        # Normalize: Move marker to front
+                        title = re.sub(r"\[P\s*\d+\]", "", title, flags=re.IGNORECASE).strip()
+                        title = f"{marker} {title}"
                 if module_match: module = module_match.group(1).strip()
                 if exp_match: explanation = exp_match.group(1).strip()
                 else:
@@ -400,9 +418,14 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             if not explanation or len(explanation) < 5: continue
 
             # Determine scope label
-            focus_ctx = event_context.get("focus_context", {})
-            focus_mode = focus_ctx.get("mode", "Whole document")
             scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+            
+            # If marker found in title (even in Whole Document mode), update scope for better UI badge
+            para_match_final = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
+            if para_match_final:
+                marker = para_match_final.group(1).upper().replace(" ", "")
+                p_num = marker.strip("[]P").strip()
+                scope_label = f"Paragraph {p_num}"
 
             meta = {
                 "label": title,
@@ -439,7 +462,16 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 module_match = re.search(r"Module:\s*(.*?)(?=\n|Critique:|$)", clean_opt, re.IGNORECASE)
                 body_match = re.search(r"Critique:\s*(.*)", clean_opt, re.DOTALL | re.IGNORECASE)
 
-                if title_match: title = title_match.group(1).strip(" *")
+                if title_match: 
+                    title = title_match.group(1).strip(" *")
+                    # Standarize [PX] in title if present
+                    para_match = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
+                    if para_match:
+                        marker = para_match.group(1).upper().replace(" ", "")
+                        # Normalize: Move marker to front
+                        title = re.sub(r"\[P\s*\d+\]", "", title, flags=re.IGNORECASE).strip()
+                        title = f"{marker} {title}"
+                
                 if module_match: module = module_match.group(1).strip()
                 if body_match: body = body_match.group(1).strip()
 
@@ -447,9 +479,14 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 pass
 
             # Determine scope label
-            focus_ctx = event_context.get("focus_context", {})
-            focus_mode = focus_ctx.get("mode", "Whole document")
             scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+            
+            # If marker found in title (even in Whole Document mode), update scope for better UI badge
+            para_match_final = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
+            if para_match_final:
+                marker = para_match_final.group(1).upper().replace(" ", "")
+                p_num = marker.strip("[]P").strip()
+                scope_label = f"Paragraph {p_num}"
 
             # החזרת אובייקט נתונים ללא הוספה לעץ
             critique_items.append({
@@ -499,11 +536,26 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                     focus_mode = focus_ctx.get("mode", "Whole document")
                     scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
                     
+                    suggestion_type = found_fields.get("Type", "Improvement")
+                    # Remove any existing [PX] from type to avoid doubles
+                    suggestion_type = re.sub(r"\[P\s*\d+\]", "", suggestion_type, flags=re.IGNORECASE).strip()
+                    
+                    # Ensure [PX] is in the type if in Whole Document mode
+                    if focus_mode == "Whole document":
+                        # Search for marker in the whole block (AI might put it in Type or Reason)
+                        para_match = re.search(r"(\[P\s*\d+\])", block, re.IGNORECASE)
+                        if para_match:
+                            marker = para_match.group(1).upper().replace(" ", "")
+                            suggestion_type = f"{marker} {suggestion_type}"
+                            # Also update scope label for the badge
+                            p_num = marker.strip("[]P")
+                            scope_label = f"Paragraph {p_num}"
+                    
                     suggestions.append({
                         "id": f"refine_{i}_{os.urandom(2).hex()}",
                         "original": orig_clean,
                         "proposed": prop_clean,
-                        "type": found_fields.get("Type", "Improvement"),
+                        "type": suggestion_type,
                         "reason": found_fields.get("Reason", "General improvement"),
                         "status": "pending",
                         "scope": scope_label
@@ -516,6 +568,26 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
              return {"mode": "refine_legacy", "refined_text": llm_output.strip(), "diff_html": generate_diff_html(base_focus, llm_output.strip())}
 
         return {"mode": "refine_suggestions", "items": suggestions}
+
+    if action == ActionType.SEGMENT:
+        # Robustly split by "Block X:" markers
+        blocks = re.split(r"\n?\s*Block\s*\d+:\s*", llm_output.strip(), flags=re.IGNORECASE)
+        # Filter out empty blocks
+        paras = []
+        for b in blocks:
+            b_clean = b.strip()
+            if b_clean:
+                # MANDATORY: Strip any [P1], Block 1, or manual numbering the AI might have added anyway
+                b_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", b_clean, flags=re.IGNORECASE).strip()
+                # Repeat once to catch "[P1] [P1]" or similar
+                b_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", b_clean, flags=re.IGNORECASE).strip()
+                paras.append(b_clean)
+        
+        # FALLBACK: If no blocks were found but output exists, use simple paragraph splitting
+        if not paras and llm_output.strip():
+            paras = [p.strip() for p in llm_output.split("\n\n") if p.strip()]
+            
+        return {"mode": "segmentation", "paragraphs": paras}
 
     return {"status": "error", "message": "Unknown action"}
 

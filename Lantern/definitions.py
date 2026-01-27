@@ -8,6 +8,7 @@ class ActionType(Enum):
     REFINE = "refine"
     CRITIQUE = "critique"
     CLASSIFY = "classify"
+    SEGMENT = "segment"
 
 
 class UserEventType(Enum):

@@ -304,6 +304,9 @@ def render_sidebar_map(tree, show_header: bool = True):
             st.session_state.knowledge_base = kb
             st.session_state.editor_version = editor_version
             st.session_state.root_topic_resolved = False
+            st.session_state.logical_paragraphs = []
+            st.session_state.last_segmented_text = ""
+            st.session_state.last_edit_time = 0
             
             if os.path.exists("lantern_autosave.json"):
                 try: os.remove("lantern_autosave.json")

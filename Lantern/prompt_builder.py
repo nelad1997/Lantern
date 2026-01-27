@@ -27,14 +27,14 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
 
             "Output Format (STRICT):\n"
             "For each perspective:\n"
-            "Title: <A SPECIFIC, UNIQUE name for this perspective. DO NOT USE 'Alternative Perspective'>\n"
+            "Title: <[PX] A SPECIFIC, UNIQUE name for this perspective>\n"
             "Module: <The principle applied>\n"
             "Explanation: <How it applies (MAX 100 WORDS)>\n\n"
             "Rules:\n"
+            "- MANDATORY CITATIONS: EVERY perspective MUST explicitly identify its relevant paragraph using the [PX] markers provided in the input (e.g., START the Title with '[P1]').\n"
             "- Do NOT rewrite the author's text.\n"
             "- KEEP IT SHORT.\n"
             "- STRICT MAXIMUM: 3 options.\n"
-            "- MANDATORY: Every Title MUST be distinct and directly describe the perspective's unique focus.\n"
             "- Use 'Title:' as the key even if the content is in another language.\n"
             "- Return ONLY the perspectives in the specified format.\n\n"
 
@@ -60,12 +60,13 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "Respond ONLY with a list of improvements in the following block format:\n\n"
             "Original: <The exact text segment from the input>\n"
             "Proposed: <The improved version of that segment>\n"
-            "Type: <1-3 words describing the improvement type>\n"
-            "Reason: <Provide a comprehensive, multi-faceted academic explanation.>\n\n"
+            "Type: <[PX] Category, e.g., [P1] Clarity>\n"
+            "Reason: <Provide a comprehensive academic explanation.>\n\n"
             "Separate each improvement block with a double newline.\n\n"
             "Rules:\n"
             "- Do NOT include any introductory or concluding text.\n"
             "- Ensure 'Original' text matches the input EXACTLY for replacement logic.\n"
+            "- CITATIONS: EVERY block MUST include the [PX] marker from the input text in the 'Type' field.\n"
             "- Respond in the same language as the input text.\n\n"
 
             "--- INPUT TEXT TO REFINE ---\n"
@@ -89,8 +90,9 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
 
             "Output Rules:\n"
             "- If there are critiques, provide UP TO 3 short and direct blocks.\n"
+            "- MANDATORY CITATIONS: If a critique focuses on a specific section, START the Title with the corresponding [PX] marker (e.g., '[P1] Hidden Assumption').\n"
             "Output Format (STRICT) per block:\n"
-            "Title: <Short unique title for the issue (MUST be distinct for each block)>\n"
+            "Title: <[PX] Short unique title for the issue>\n"
             "Module: <The academic principle applied>\n"
             "Critique: <The concise critique content>\n"
             "- Separate blocks with a double newline.\n"
@@ -98,6 +100,32 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "- Respond in the same language as the input text.\n"
             "- STRICTLY NO introductory text. Start directly with 'Title:' or 'NO_CRITIQUE_NEEDED'.\n\n"
             f"Input & Principles:\n{focus}"
+        )
+
+    # -------------------------------------------------
+    # SEGMENT — STRUCTURE Mode (Logical Paragraphs)
+    # -------------------------------------------------
+    if action == ActionType.SEGMENT:
+        return (
+            "You are a linguistic analyst. Your goal is to regroup the provided text into its core 'Logical Paragraphs' (Argument Units).\n"
+            "MODE: SEGMENT (Logical Argument Analysis)\n\n"
+            "--- OPERATIONAL DEFINITION ---\n"
+            "A logical paragraph is a single, complete unit of argument: one central claim + its supporting explanations, reasons, or examples.\n\n"
+            "--- SEGMENTATION RULES ---\n"
+            "1. CONCEPTUAL SHIFT: Start a new block ONLY when there is a clear conceptual transition (e.g., from Education to Mental Health).\n"
+            "2. IGNORE FORMATTING: Bullets, sub-headers, and lists are NOT new paragraphs. They are extensions of the preceding argument unit.\n"
+            "3. HEADERS: A heading + the text immediately following it belong in the SAME logical block.\n"
+            "4. NO PARAPHRASING: Keep the text exactly as provided. Do not summarize or change wording.\n"
+            "5. NO BULLETS IN OUTPUT: Do not use bullet points to separate blocks.\n\n"
+            "--- OUTPUT FORMAT (STRICT) ---\n"
+            "Respond ONLY with a numbered list of blocks in this exact format:\n\n"
+            "Block 1:\n"
+            "[Full exact text of the first logical argument unit]\n\n"
+            "Block 2:\n"
+            "[Full exact text of the second logical argument unit]\n\n"
+            "CRITICAL: Do NOT include '[P1]', '[P2]', or ANY markers/numbering inside the block text itself. Only use the 'Block X:' header to separate units. The system will handle final citation numbering.\n\n"
+            "--- INPUT TEXT ---\n"
+            f"{focus}"
         )
 
     raise ValueError(f"Unsupported action type: {action}")
