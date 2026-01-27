@@ -84,7 +84,7 @@ def render_svg_in_sidebar(svg: str, height_px: int = 480):
     components.html(html, height=height_px, scrolling=False)
 
 
-def render_sidebar_map(tree):
+def render_sidebar_map(tree, show_header: bool = True):
     """
     Renders the vertical 'Thought Tree' in the sidebar.
     """
@@ -99,7 +99,8 @@ def render_sidebar_map(tree):
         if os.path.exists(graphviz_path) and graphviz_path not in os.environ.get("PATH", ""):
             os.environ["PATH"] = graphviz_path + os.pathsep + os.environ.get("PATH", "")
 
-        st.subheader("🗺️ Thought Tree")
+        if show_header:
+            st.subheader("🗺️ Thought Tree")
 
         # --- Metrics & Controls ---
         if "bulletproof_history" not in st.session_state:
@@ -215,14 +216,29 @@ def render_sidebar_map(tree):
             else:
                 fill, font, border, width = "#ffffff", "#0f172a", "#94a3b8", "1"
 
-            label_text = node_id_to_label.get(node_id, get_node_short_label(node))
+            # Resolve Label with Scope
+            node_meta = node.get("metadata", {})
+            scope_raw = node_meta.get('scope', '')
+            
+            # Map scope to short code
+            scope_code = ""
+            if "Paragraph" in scope_raw:
+                try:
+                    p_num = scope_raw.split("#")[-1]
+                    scope_code = f"[P{p_num}] "
+                except:
+                    scope_code = "[P] "
+            elif "Whole" in scope_raw:
+                scope_code = "[WD] "
+            
+            base_label_raw = node_id_to_label.get(node_id, get_node_short_label(node))
+            display_label = f"{scope_code}{base_label_raw}"
 
             import textwrap
-            wrapped = "\n".join(textwrap.wrap(label_text, width=20))
+            wrapped = "\n".join(textwrap.wrap(display_label, width=18))
             label = f"⚖️\n{wrapped}" if node.get("type") == "ai_critique" else wrapped
             
-            # Restore Tooltips
-            tooltip = node.get("metadata", {}).get("explanation", node.get("summary", ""))[:300]
+            tooltip_str = f"Focus: {scope_raw}\n\n" + node_meta.get("explanation", node.get("summary", ""))[:450]
             
             graph.node(
                 node_id, 
@@ -231,7 +247,7 @@ def render_sidebar_map(tree):
                 fontcolor=font, 
                 color=border, 
                 penwidth=width,
-                tooltip=tooltip.replace('"', "'")
+                tooltip=tooltip_str.replace('"', "'")
             )
 
             if node.get("parent") and node["parent"] in visible_nodes:
@@ -246,7 +262,19 @@ def render_sidebar_map(tree):
 
         # --- Reset Button (Moved back to the bottom) ---
         st.divider()
-        st.caption("Workspace Management")
+        workspace_info = (
+            "Workspace Management:&#10;&#10;"
+            "🗑 Reset Full Tree: This will permanently delete all AI-generated branches, perspectives, "
+            "and logical critiques. Your current editor text and uploaded files will be preserved "
+            "and transferred to a new, clean root node."
+        )
+        st.markdown(
+            f'<div style="display: flex; align-items: center; gap: 5px; margin-bottom: 5px;">'
+            f'<span style="font-size: 0.8rem; color: #64748b; font-weight: 500;">Workspace Management</span>'
+            f'<span title="{workspace_info}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
         if st.button("🗑", help="Reset Full Tree: Delete all branches and context.", use_container_width=True):
             editor_html = st.session_state.get("editor_html", "")
             editor_version = st.session_state.get("editor_version", 0)

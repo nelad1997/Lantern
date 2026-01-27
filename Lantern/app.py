@@ -31,7 +31,7 @@ load_dotenv(override=True)
 # -------------------------------------------------
 # Page Configuration
 # -------------------------------------------------
-st.set_page_config(page_title="Lantern", layout="wide")
+st.set_page_config(page_title="Lantern", page_icon="C:/Users/eladn/.gemini/antigravity/brain/61e927cf-e0e9-4de5-aa37-2aabec6dc287/uploaded_media_1769473644151.png", layout="wide")
 
 
 # -------------------------------------------------
@@ -207,40 +207,29 @@ st.markdown("""
     font-size: 18px !important;
 }
 /* Consistent Scrollable Content for all panels */
+/* Standard scrollable content boxes (Original/Proposed) */
 .scrollable-content {
-    max-height: 180px; 
+    max-height: 120px; 
     overflow-y: auto !important;
     overflow-x: hidden;
     display: block !important;
     width: 100%;
-    margin-bottom: 20px; 
+    margin-bottom: 5px; 
     background-color: #f8fafc;
-    padding: 12px;
-    border-radius: 8px;
+    padding: 10px;
+    border-radius: 6px;
     border: 1px solid #e2e8f0;
-    font-size: 0.92rem;
+    font-size: 0.88rem;
     color: #334155;
     line-height: 1.5;
-    white-space: pre-wrap; /* Preserves line breaks from AI */
+    white-space: pre-wrap;
 }
-/* Custom Scrollbar */
 .scrollable-content::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 4px;
 }
 .scrollable-content::-webkit-scrollbar-thumb {
     background-color: #cbd5e1;
-    border-radius: 4px;
-}
-.scrollable-content::-webkit-scrollbar-track {
-    background: #f1f5f9;
-}
-/* Force sidebar to allow overflow/scrolling in child elements */
-[data-testid="stSidebar"] > div:first-child {
-    overflow: visible !important;
-}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-    overflow: visible !important;
+    border-radius: 2px;
 }
 /* Specific tree scroll container - ChatGPT fix */
 .tree-scroll-box {
@@ -330,9 +319,14 @@ def main():
         st.session_state.editor_version = 0
     if "knowledge_base" not in st.session_state:
         st.session_state.knowledge_base = {}
+    if "pending_refine_edits" not in st.session_state:
+        st.session_state.pending_refine_edits = []
 
     tree = st.session_state.tree
     current_node = get_current_node(tree)
+
+    if "editor_html" not in st.session_state:
+        st.session_state["editor_html"] = current_node.get("metadata", {}).get("html", "")
     mode_label, mode_class = get_ui_state(tree)
 
     col_editor, col_lantern = st.columns([2, 1], gap="large")
@@ -354,49 +348,128 @@ def main():
                 f'<div style="background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; line-height: 1.6;">{diff_html}</div>',
                 unsafe_allow_html=True)
 
-        st.markdown('<div class="action-bar"><div class="action-bar-title">AI Reasoning Actions</div>',
-                    unsafe_allow_html=True)
-
-        if "editor_html" not in st.session_state:
-            st.session_state["editor_html"] = current_node.get("metadata", {}).get("html", "")
-        st.session_state.setdefault("focused_text", current_node.get("summary", ""))
+        # --- (1) Action Buttons First ---
+        st.markdown('<div class="action-bar"><div class="action-bar-title">AI Reasoning Actions</div>', unsafe_allow_html=True)
 
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
+        
+        # --- Focus Context Logical Calculations ---
+        current_html = st.session_state.get("editor_html", "")
+        
+        # Broaden block detection (p, h1-6, div, li, blockquote)
+        raw_blocks = re.findall(r"<(p|h[1-6]|div|li|blockquote)[^>]*>(.*?)</\1>", current_html, re.DOTALL | re.IGNORECASE)
+        paragraphs_only = []
+        for tag, inner in raw_blocks:
+            # Clean inner text
+            clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
+            if clean_inner:
+                block_type = "header" if tag.lower().startswith("h") else "paragraph"
+                # If it's a div/li, treat as paragraph for focus purposes
+                if tag.lower() in ["div", "li", "blockquote"]:
+                    block_type = "paragraph"
+                
+                # Short bold = Header heuristic
+                if block_type == "paragraph" and len(clean_inner) < 100:
+                    if re.search(r"<(strong|b)[^>]*>.*?</(strong|b)>", inner, re.DOTALL | re.IGNORECASE):
+                         if len(re.sub("<[^<]+?>", "", inner).strip()) <= len(clean_inner) + 5:
+                             block_type = "header"
+                if block_type == "paragraph":
+                    paragraphs_only.append(clean_inner)
+
         with c1:
-            if st.button("🌱 Expand", use_container_width=True, help="Generate new perspectives and ideas based on your text"):
-                st.session_state.pending_action = {"action": ActionType.DIVERGE,
-                                                   "user_text": st.session_state["focused_text"]}
+            if st.button("🌱 Expand", use_container_width=True, help="Explore alternative reasoning paths and divergent perspectives based on your focus."):
+                st.session_state.pending_action = {
+                    "action": ActionType.DIVERGE, 
+                    "user_text": st.session_state.get("focused_text", ""),
+                    "focus_context": {
+                        "mode": st.session_state.get("promo_focus_mode", "Whole document"),
+                        "block_idx": st.session_state.get("promo_block_selector")
+                    }
+                }
                 st.session_state.is_thinking = True
                 st.rerun()
         with c2:
-            if st.button("⚖️ Critique", use_container_width=True, help="Get critical feedback on logic, evidence, and rigor"):
-                st.session_state.pending_action = {"action": ActionType.CRITIQUE,
-                                                   "user_text": st.session_state["focused_text"]}
+            if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
+                st.session_state.pending_action = {
+                    "action": ActionType.CRITIQUE, 
+                    "user_text": st.session_state.get("focused_text", ""),
+                    "focus_context": {
+                        "mode": st.session_state.get("promo_focus_mode", "Whole document"),
+                        "block_idx": st.session_state.get("promo_block_selector")
+                    }
+                }
                 st.session_state.is_thinking = True
                 st.rerun()
         with c3:
-            if st.button("✨ Refine", use_container_width=True, help="Polish grammar, clarity, and flow"):
-                # Capture Context
-                context = {
-                    "mode": st.session_state.get("promo_focus_mode", "Whole document"),
-                    "block_idx": st.session_state.get("promo_block_selector", 1)
+            if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
+                st.session_state.pending_action = {
+                    "action": ActionType.REFINE, 
+                    "user_text": st.session_state.get("focused_text", ""),
+                    "focus_context": {
+                        "mode": st.session_state.get("promo_focus_mode", "Whole document"),
+                        "block_idx": st.session_state.get("promo_block_selector")
+                    }
                 }
-                
-                st.session_state.pending_action = {"action": ActionType.REFINE,
-                                                   "user_text": st.session_state["focused_text"],
-                                                   "context": context}
                 st.session_state.is_thinking = True
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        
+        focus_info = (
+            "Select how Lantern processes your draft:&#10;&#10;"
+            "📄 Whole Document: Analyze flow and consistency across the entire draft.&#10;&#10;"
+            "🎯 Specific Paragraph: Zoom in on a single section for precise, granular feedback.&#10;&#10;"
+            "👀 Note: Check the 'AI Focus Preview' below to see the exact text being sent."
+        )
+        st.markdown(
+            f'<div style="display: flex; align-items: center; gap: 5px; margin-bottom: -15px;">'
+            f'<span style="font-size: 1rem;">🧠 Focus Lantern on:</span>'
+            f'<span title="{focus_info}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        focus_mode = st.selectbox("", ["Whole document", "Specific paragraph"], key="promo_focus_mode", label_visibility="visible")
+
+        target_text = ""
+        if focus_mode == "Specific paragraph" and paragraphs_only:
+            block_idx = st.number_input("Paragraph number", min_value=1, max_value=len(paragraphs_only), step=1, key="promo_block_selector")
+            target_text = paragraphs_only[block_idx - 1]
+        else:
+            # Robust Full Doc Extraction
+            # 1. Remove styles
+            no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)
+            # 2. Add newlines for block tags to preserve structure
+            txt_s = re.sub(r"<(p|div|h[1-6]|li|blockquote|br)[^>]*>", "\n", no_css)
+            txt_s = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", txt_s)
+            # 3. Strip all other tags and entities
+            target_text = re.sub("<[^<]+?>", "", txt_s).replace("&nbsp;", " ").strip()
+            # 4. Collapse extra newlines
+            target_text = re.sub(r"\n{3,}", "\n\n", target_text)
+            
+            # Absolute fallback: If empty but HTML isn't, just strip everything
+            if not target_text and current_html.strip():
+                 target_text = re.sub("<[^<]+?>", "", current_html).strip()
+
+        st.session_state["focused_text"] = target_text
+
+        # AI Focus Preview
+        is_refining_ui = ("pending_action" in st.session_state and st.session_state.pending_action and 
+                          st.session_state.pending_action.get("action") == ActionType.REFINE and 
+                          st.session_state.is_thinking)
+        
+        if "last_refine_diff" not in st.session_state and not is_refining_ui:
+            with st.expander("🔍 AI Focus Preview", expanded=False):
+                st.caption("Exact text Lantern will analyze:")
+                # Using markdown for better reliability and immediate reactivity
+                st.markdown(
+                    f'<div style="font-size: 0.9rem; color: #334155; background-color: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; height: 150px; overflow-y: auto; white-space: pre-wrap;">'
+                    f'{st.session_state.get("focused_text", "No text detected. Start typing in the editor below.")}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
-
-        if "html" not in current_node.get("metadata", {}) or not current_node["metadata"]["html"]:
-            if current_node.get("summary"):
-                current_node.setdefault("metadata", {})[
-                    "html"] = f"<p>{current_node['summary'].replace(chr(10), '<br>')}</p>"
-
-        # Custom CSS to force editor font size inside the iframe
         EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
 
         if "last_refine_diff" in st.session_state:
@@ -481,7 +554,14 @@ def main():
                     st.rerun()
 
             html_content = st.session_state["editor_html"]
-        else:
+        
+        # --- NEW: Granular Refine Progress Bar ---
+        if st.session_state.get("pending_refine_edits"):
+            pending_count = len([p for p in st.session_state.pending_refine_edits if p["status"] == "pending"])
+            if pending_count > 0:
+                st.warning(f"✨ Reviewing {pending_count} suggested improvements in the sidebar.")
+        
+        if not ("last_refine_diff" in st.session_state):
             # שינוי: עטיפת ה-Editor במיכל עם גובה קבוע המאפשר גלילה (ללא border כדי למנוע שגיאות גרסה)
             with st.container(height=600):
                 # Small Floating Clear Button inside container
@@ -510,104 +590,128 @@ def main():
                     key=f"quill_main_{st.session_state.editor_version}",
                 )
 
-        plain_text = ""
-        blocks_data = []  # Ensure initialization
-
-        if html_content:
-            # Strip the injected CSS from the output to keep data clean
-            clean_html = html_content.replace(EDITOR_CSS, "")
-            
-            st.session_state["editor_html"] = clean_html
-            current_node.setdefault("metadata", {})["html"] = clean_html
-            
-            # Robust Text Processing (Fixes double counting of paragraphs)
-            # 1. Replace block tags with SINGLE newline first (to avoid gaps)
-            text_processing = re.sub(r"</(p|div|h[1-6])>", "\n", clean_html) 
-            text_processing = re.sub(r"<(p|div|h[1-6])[^>]*>", "", text_processing)
-            # 2. Convert <br> to newline
-            text_processing = text_processing.replace("<br>", "\n")
-            # 3. Strip tags
-            plain_text = re.sub("<[^<]+?>", "", text_processing).strip()
-            # 4. Collapse multiple newlines to max 2
-            plain_text = re.sub(r'\n{3,}', '\n\n', plain_text)
-            
-            current_node["metadata"]["draft_plain"] = plain_text
-
-            if not st.session_state.get("root_topic_resolved", False) and current_node["type"] == "root":
-                h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html_content, re.IGNORECASE | re.DOTALL)
-                if h1_match:
-                    current_node["summary"] = re.sub("<[^<]+?>", "", h1_match.group(1)).strip()
-                    st.session_state.root_topic_resolved = True;
-                    st.rerun()
-
-            blocks = re.findall(r"<(p|h[1-6])[^>]*>(.*?)</\1>", html_content, re.DOTALL | re.IGNORECASE)
-            blocks_data = []
-            for tag, inner in blocks:
-                # Clean inner text to check for emptiness (handle &nbsp;)
-                clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
-                if clean_inner:
-                    block_type = "header" if tag.lower().startswith("h") else "paragraph"
+                if html_content is not None:
+                    # Robust Clean: Remove any <style> blocks (injected or otherwise)
+                    clean_html = re.sub(r"<style.*?>.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
                     
-                    # Heuristic: If it's a short bold paragraph, likely a title
-                    if block_type == "paragraph" and len(clean_inner) < 100:
-                         if re.search(r"<(strong|b)[^>]*>.*?</(strong|b)>", inner, re.DOTALL | re.IGNORECASE):
-                             # Check if the bold covers most of the content
-                             inner_no_tags = re.sub("<[^<]+?>", "", inner).strip()
-                             if len(inner_no_tags) <= len(clean_inner) + 5: # Tolerance
-                                 block_type = "header"
+                    # Sync to state so focus logic above can see it next run
+                    if clean_html.strip() != st.session_state["editor_html"].strip():
+                        st.session_state["editor_html"] = clean_html
+                        current_node.setdefault("metadata", {})["html"] = clean_html
+                        # Add plain text for tree/summaries
+                        text_proc = re.sub(r"<(p|div|h[1-6]|li|blockquote)[^>]*>", "", clean_html)
+                        text_proc = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", text_proc).replace("<br>", "\n")
+                        plain_text = re.sub("<[^<]+?>", "", text_proc).strip()
+                        current_node["metadata"]["draft_plain"] = plain_text
+                        
+                        # IMPORTANT: Rerun to update the Preview/Focus UI at the TOP
+                        st.rerun()
 
-                    blocks_data.append({
-                        "text": clean_inner,
-                        "type": block_type
-                    })
 
-        # Custom Label with Tooltip
-        focus_info = (
-            "Select how Lantern processes your draft:&#10;&#10;"
-            "📄 Whole Document: Best for overall flow, structure, and consistency. "
-            "Lantern looks at everything to ensure your argument is coherent throughout.&#10;&#10;"
-            "🎯 Specific Paragraph: Perfect for granular polish and logical rigor. "
-            "Lantern zooms in on one section to provide highly precise, detailed suggestions without surrounding distractions.&#10;&#10;"
-            "👀 Note: You can view exactly what text is being sent to the agent in the 'AI Focus Preview' section below."
-        )
-        st.markdown(
-            f'<div style="display: flex; align-items: center; gap: 5px; margin-bottom: -15px;">'
-            f'<span style="font-size: 1rem;">🧠 Focus Lantern on:</span>'
-            f'<span title="{focus_info}" style="cursor: help; color: #64748b; font-size: 0.9em;">ℹ️</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-        focus_mode = st.selectbox("", ["Whole document", "Specific paragraph"], key="promo_focus_mode", label_visibility="visible")
-
-        if focus_mode == "Specific paragraph" and blocks_data:
-            # Filter only paragraphs for the "Paragraph number" selector
-            paragraphs_only = [b for b in blocks_data if b["type"] == "paragraph"]
-            
-            if paragraphs_only:
-                # Use "Paragraph number" as requested
-                block_idx = st.number_input("Paragraph number", min_value=1, max_value=len(paragraphs_only), step=1, key="promo_block_selector")
-                st.session_state["focused_text"] = paragraphs_only[block_idx - 1]["text"]
-            else:
-                st.warning("No paragraphs found.")
-                st.session_state["focused_text"] = ""
-        else:
-            st.session_state["focused_text"] = current_node.get("metadata", {}).get("draft_plain", plain_text)
-
-        # ✅ PREVIEW BLOCK (Hidden when in Refine Review Mode OR Thinking about Refine)
-        is_refining = st.session_state.get("pending_action", {}) and \
-                      st.session_state.pending_action.get("action") == ActionType.REFINE and \
-                      st.session_state.is_thinking
-
-        if "last_refine_diff" not in st.session_state and not is_refining:
-            with st.expander("🔍 AI Focus Preview", expanded=False):
-                st.caption("This is the exact text Lantern will analyze:")
-                st.text_area("", value=st.session_state["focused_text"], height=150, disabled=True)
 
 
     # ==========================================
     # SIDEBAR TOOLS
     # ==========================================
-    render_sidebar_map(tree)
+    with st.sidebar:
+        # Resolve which view to show
+        # Default to "Map" unless there are active refinements
+        default_sidebar_tab = "🗺️ Thought Map"
+        if st.session_state.pending_refine_edits:
+            # Check if there's at least one pending
+            if any(p["status"] == "pending" for p in st.session_state.pending_refine_edits):
+                default_sidebar_tab = "✨ Refine Review"
+
+        # Sidebar View Selector (Using colored radio for prominence)
+        st.markdown(
+            """
+            <style>
+            .stRadio [data-testid="stWidgetLabel"] { display: none; }
+            [data-testid="stSidebar"] hr { margin: 1rem 0; }
+            </style>
+            """, unsafe_allow_html=True
+        )
+        
+        # Sidebar View Selector
+        sidebar_view = st.radio(
+            "View:",
+            ["🗺️ Thought Map", "✨ Refine Review"],
+            index=1 if default_sidebar_tab == "✨ Refine Review" else 0,
+            horizontal=True,
+            key="sidebar_view_toggle",
+            label_visibility="collapsed"
+        )
+        st.divider()
+
+    if sidebar_view == "🗺️ Thought Map":
+        render_sidebar_map(tree, show_header=False)
+    else:
+        # --- NEW: Granular Refine Review Panel (Sidebar Style) ---
+        with st.sidebar:
+            if st.session_state.get("pending_refine_edits"):
+                c_titles_1, c_titles_2 = st.columns([0.85, 0.15])
+                c_titles_1.markdown("### ✨ Refine Review")
+                if c_titles_2.button("🗑", help="Dismiss all pending suggestions", key="dismiss_all_refine"):
+                    st.session_state.pending_refine_edits = []
+                    st.session_state["sidebar_view_toggle"] = "🗺️ Thought Map"
+                    st.rerun()
+                st.info("Review AI suggestions and apply them individually.")
+                
+                # Use a standard container (no fixed height) to allow sidebar scroll
+                with st.container():
+                    for i, proposal in enumerate(st.session_state.pending_refine_edits):
+                        if proposal["status"] != "pending": continue
+                        
+                        # Suggestion Title with Info Icon (Light Blue)
+                        suggestion_type = proposal.get("type", "Improvement")
+                        st.markdown(
+                            f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 15px; margin-bottom: 5px;">'
+                            f'<b style="font-size: 1rem;">{suggestion_type} {i+1}</b>'
+                            f'<span title="Type: {suggestion_type}&#10;Academic Reasoning:&#10;{proposal["reason"]}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.8em; font-weight: bold;">i</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+
+                        with st.container(border=True):
+                            # Merged Diff View (Legacy style: Red/Green)
+                            diff_html = generate_diff_html(proposal['original'], proposal['proposed'])
+                            st.caption("Compare Changes")
+                            st.markdown(
+                                f'<div class="scrollable-content" style="max-height: 150px; overflow-y: auto; font-size: 0.95rem; background-color: #ffffff; border-color: #e2e8f0; margin-bottom: 12px; padding: 12px; border-radius: 6px; border: 1px solid; line-height: 1.6;">'
+                                f'{diff_html}'
+                                f'</div>', 
+                                unsafe_allow_html=True
+                            )
+                            
+                            c_app, c_dis = st.columns(2)
+                            if c_app.button("✔ Apply", key=f"app_refine_{proposal['id']}", use_container_width=True):
+                                # Replace in HTML
+                                current_html = st.session_state["editor_html"]
+                                refined_html = apply_fuzzy_replacement(current_html, proposal['original'], proposal['proposed'])
+                                
+                                if refined_html:
+                                    st.session_state["editor_html"] = refined_html
+                                    proposal["status"] = "applied"
+                                    st.session_state.editor_version += 1
+                                    st.rerun()
+                                else:
+                                    st.error("Text mismatch. Apply manually.")
+                            
+                            if c_dis.button("✖ Skip", key=f"dis_refine_{proposal['id']}", use_container_width=True):
+                                proposal["status"] = "dismissed"
+                                st.rerun()
+                
+                # Auto-clear if nothing pending
+                if not [p for p in st.session_state.pending_refine_edits if p["status"] == "pending"]:
+                    st.session_state.pending_refine_edits = []
+                    # Switch back to Map automatically after clearing
+                    st.session_state["sidebar_view_toggle"] = "🗺️ Thought Map"
+                    st.rerun()
+            else:
+                st.info("No pending refinements.")
+                if st.button("Back to Map", use_container_width=True):
+                    st.session_state["sidebar_view_toggle"] = "🗺️ Thought Map"
+                    st.rerun()
 
     # ==========================================
     # RIGHT COLUMN: INTERACTION & CONTEXT
@@ -690,18 +794,22 @@ def main():
         st.markdown("<div style='text-align: right; font-weight: bold; font-size: 1.1em; color: #334155; margin-bottom: 10px;'>📌 Pinned Context</div>", unsafe_allow_html=True)
         
         if st.session_state.tree["pinned_items"]:
-            for i, item in enumerate(st.session_state.tree["pinned_items"]):
-                is_node = isinstance(item, dict)
-                p_text, p_title = (item.get("text", ""), item.get("title", "")) if is_node else (item, "")
-                display_html = f"<strong>{p_title}</strong><br>{p_text}" if p_title else p_text
-                c_txt, c_btns = st.columns([0.85, 0.15])
-                with c_txt:
-                    st.markdown(
-                        f'<div class="pinned-box scrollable-content" style="max-height:150px;">{display_html}</div>',
-                        unsafe_allow_html=True)
-                with c_btns:
-                    if st.button("❌", key=f"unpin_{i}", use_container_width=True):
-                        st.session_state.tree["pinned_items"].pop(i);
+            for i, item_data in enumerate(st.session_state.tree["pinned_items"]):
+                is_dict = isinstance(item_data, dict)
+                text = item_data.get("text", "") if is_dict else item_data
+                title = item_data.get("title", "") if is_dict else ""
+                scope = item_data.get("scope", "WD") if is_dict else "WD"
+                source_context = item_data.get("source_context", "") if is_dict else ""
+                
+                with st.expander(f"📌 {title or 'Pinned Insight'} ({scope})"):
+                    st.markdown(text)
+                    if source_context:
+                        with st.expander("🔍 Analyzed Context", expanded=False):
+                            st.caption("Lantern analyzed this specific text for this insight:")
+                            st.markdown(f'<div style="font-size: 0.8rem; color: #64748b; background-color: #f8fafc; padding: 10px; border-radius: 4px; border-left: 3px solid #cbd5e1; max-height: 200px; overflow-y: auto;">{source_context}</div>', unsafe_allow_html=True)
+                    
+                    if st.button("❌ Unpin", key=f"unpin_{i}", use_container_width=True):
+                        st.session_state.tree["pinned_items"].pop(i)
                         st.rerun()
         else:
              st.markdown(
@@ -744,11 +852,12 @@ def main():
                         text = item_data
 
                     with st.container(border=True):
-                        # ✅ FIXED: Title + Info Icon with Tooltip
+                        # Display scope and Module info
+                        scope = item_data.get("scope", "Whole Document") if isinstance(item_data, dict) else "Whole Document"
                         st.markdown(
-                            f'<b>{title}</b> '
-                            f'<span title="Academic Principle: {module}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
-                            unsafe_allow_html=True
+                             f'<b>{title}</b> '
+                             f'<span title="Academic Factor: {module}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>',
+                             unsafe_allow_html=True
                         )
 
                         st.markdown(
@@ -852,15 +961,15 @@ def main():
                                                                                                        "").strip()
 
                     with st.container(border=True):
+                        scope = child.get("metadata", {}).get("scope", "Whole Document")
                         st.markdown(
-                            f'<div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>From: {item["source"]}</span></div>',
+                            f'<div class="suggestion-meta"><span>🤖 {child.get("type", "Idea")}</span><span>Focus: {scope}</span></div>',
                             unsafe_allow_html=True)
 
-                        # ✅ FIXED: Title + Info Icon with Tooltip
                         st.markdown(
-                            f'<b>{title}</b> '
-                            f'<span title="Academic Principle: {module_tag}" style="cursor: help; color: #64748b; font-size: 0.9em; margin-left: 5px;">ℹ️</span>',
-                            unsafe_allow_html=True
+                             f'<b>{title}</b> '
+                             f'<span title="Academic Factor: {module_tag}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>',
+                             unsafe_allow_html=True
                         )
 
                         st.markdown(
@@ -877,7 +986,14 @@ def main():
                         with c_sel:
                             if st.button("✔ Select", key=f"s_{cid}", help=f"Select this path based on Academic Principle: {module_tag}",
                                          use_container_width=True):
-                                pin_obj = {"id": cid, "title": title, "text": explanation, "type": "idea"}
+                                pin_obj = {
+                                    "id": cid, 
+                                    "title": title, 
+                                    "text": explanation, 
+                                    "type": "idea",
+                                    "scope": scope,
+                                    "source_context": meta.get("source_context", "")
+                                }
                                 st.session_state.tree["pinned_items"].append(pin_obj)
 
                                 child.setdefault("metadata", {})["label"] = title
@@ -886,7 +1002,6 @@ def main():
                                 child["metadata"]["selected_path"] = True
 
                                 # --- Automatic Sibling Dismissal ---
-                                # Every sibling of the selected node that is currently a suggestion should be dismissed.
                                 for sibling_id in current_node["children"]:
                                     if sibling_id != cid:
                                         st.session_state.dismissed_suggestions.add(sibling_id)
@@ -895,8 +1010,14 @@ def main():
                                 st.rerun()
                         with c_pin:
                             if st.button("📌 Pin", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
-                                st.session_state.tree["pinned_items"].append(
-                                    {"id": cid, "title": title, "text": explanation, "type": "idea"})
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": cid, 
+                                    "title": title, 
+                                    "text": explanation, 
+                                    "type": "idea",
+                                    "scope": scope,
+                                    "source_context": meta.get("source_context", "")
+                                })
                                 st.rerun()
                         with c_pru:
                             if st.button("🗑", key=f"pr_{cid}", help="Delete this suggestion", use_container_width=True):
@@ -910,20 +1031,30 @@ def main():
                 st.session_state.llm_in_flight = True
                 try:
                     payload = st.session_state.pending_action
+                    focus_context = payload.get("focus_context", {
+                        "mode": "Whole document",
+                        "block_idx": 1
+                    })
+                    
                     response = handle_event(st.session_state.tree, UserEventType.ACTION, {
                         "action": payload["action"],
                         "pinned_context": st.session_state.tree["pinned_items"],
                         "banned_ideas": st.session_state.banned_ideas,
                         "user_text": payload["user_text"],
                         "knowledge_base": st.session_state.get("knowledge_base", {}),
+                        "focus_context": focus_context
                     })
                     if payload["action"] == ActionType.CRITIQUE:
                         st.session_state["current_critiques"] = response.get("items", [])
                     elif payload["action"] == ActionType.REFINE:
-                        st.session_state["last_refine_diff"] = response.get("diff_html")
-                        st.session_state["last_refine_text"] = response.get("refined_text")
-                        st.session_state["last_refine_original_target"] = payload["user_text"]
-                        st.session_state["last_refine_context"] = payload.get("context", {})
+                        if response.get("mode") == "refine_suggestions":
+                            st.session_state.pending_refine_edits = response.get("items", [])
+                        else:
+                            # Fallback to legacy diff view if parsing failed
+                            st.session_state["last_refine_diff"] = response.get("diff_html")
+                            st.session_state["last_refine_text"] = response.get("refined_text")
+                            st.session_state["last_refine_original_target"] = payload["user_text"]
+                            st.session_state["last_refine_context"] = payload.get("context", {})
                 except Exception as e:
                     st.error(f"❌ Gemini Error: {e}")
                 finally:

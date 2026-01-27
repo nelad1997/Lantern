@@ -48,20 +48,27 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
     # -------------------------------------------------
     if action == ActionType.REFINE:
         return (
-            "You are a meticulous academic editor. Your task is to improve the "
-            "clarity, flow, and structure of the author's text WITHOUT changing "
-            "the core arguments or adding new ideas.\n"
-            "MODE: REFINE (Polish & Clarity)\n\n"
+            "You are a meticulous academic editor. Your task is to identify specific "
+            "improvements to the author's text for clarity, flow, and structure.\n"
+            "MODE: REFINE (Granular Analysis)\n\n"
 
             "--- SYSTEM INSTRUCTIONS ---\n"
             f"{instructions}\n"
-            "1. Improve sentence structure and academic tone.\n"
-            "2. Fix ambiguities and ensure smooth transitions.\n"
-            "3. Keep the original meaning and arguments intact.\n\n"
+            "1. Identify clear, logical segments of the text that can be improved.\n"
+            "2. For each improvement, provide the original segment, the replacement, and a brief academic reason.\n"
+            "3. Keep the original meaning and core arguments intact.\n\n"
 
-            "--- OUTPUT RULES ---\n"
-            "- Return ONLY the refined text.\n"
+            "--- OUTPUT FORMAT (STRICT) ---\n"
+            "Respond ONLY with a list of improvements in the following block format:\n\n"
+            "Original: <The exact text segment from the input>\n"
+            "Proposed: <The improved version of that segment>\n"
+            "Type: <1-3 words describing the improvement type, e.g., 'Grammar', 'Conciseness', 'Logical Flow', 'Academic Tone'>\n"
+            "Reason: <Provide a comprehensive, multi-faceted academic explanation. Explain WHY this change improves clarity, logical flow, or formal tone. Cite specific writing principles if applicable.>\n\n"
+            "Separate each improvement block with a double newline.\n\n"
+
+            "Rules:\n"
             "- Do NOT include any introductory or concluding text.\n"
+            "- Ensure 'Original' text matches the input EXACTLY for replacement logic.\n"
             "- Respond in the same language as the input text.\n\n"
 
             "--- INPUT TEXT TO REFINE ---\n"

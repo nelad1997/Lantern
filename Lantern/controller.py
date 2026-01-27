@@ -230,11 +230,18 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
 
             if not explanation or len(explanation) < 5: continue
 
+            # Determine scope label
+            focus_ctx = event_context.get("focus_context", {})
+            focus_mode = focus_ctx.get("mode", "Whole document")
+            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph #{focus_ctx.get('block_idx', 1)}"
+
             meta = {
                 "label": title,
                 "module": module,
                 "explanation": explanation,
-                "idea_text": option
+                "idea_text": option,
+                "scope": scope_label,
+                "source_context": event_context.get("user_text", "")
             }
             # הוספה לעץ
             add_child(tree, anchor_id, explanation, metadata=meta)
@@ -269,20 +276,56 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             except:
                 pass
 
+            # Determine scope label
+            focus_ctx = event_context.get("focus_context", {})
+            focus_mode = focus_ctx.get("mode", "Whole document")
+            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph #{focus_ctx.get('block_idx', 1)}"
+
             # החזרת אובייקט נתונים ללא הוספה לעץ
             critique_items.append({
                 "title": title,
                 "module": module,
                 "text": body,
-                "raw_text": opt
+                "raw_text": opt,
+                "scope": scope_label
             })
 
         return {"mode": "critique", "items": critique_items}
 
     if action == ActionType.REFINE:
-        refined_text = llm_output.strip()
-        diff_html = generate_diff_html(base_focus, refined_text)
-        return {"mode": "refine", "refined_text": refined_text, "diff_html": diff_html}
+        suggestions = []
+        # Support various field labels (English/Hebrew) and markdown bolding
+        blocks = re.split(r"(?=\n\s*(?:Original|מקור):|^s*(?:Original|מקור):)", llm_output.strip())
+        
+        for i, block in enumerate(blocks):
+            if not block.strip(): continue
+            try:
+                # Clean up bolding and common field labels
+                clean_block = block.replace("**Original:**", "Original:").replace("**Proposed:**", "Proposed:").replace("**Reason:**", "Reason:").replace("**Type:**", "Type:")
+                clean_block = clean_block.replace("**מקור:**", "Original:").replace("**מוצע:**", "Proposed:").replace("**הסבר:**", "Reason:").replace("**סוג:**", "Type:")
+                
+                orig_match = re.search(r"Original:\s*(.*?)(?:\n|Proposed:|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                prop_match = re.search(r"Proposed:\s*(.*?)(?:\n|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                type_match = re.search(r"Type:\s*(.*?)(?:\n|Reason:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                reason_match = re.search(r"Reason:\s*(.*)", clean_block, re.DOTALL | re.IGNORECASE)
+                
+                if orig_match and prop_match:
+                    suggestions.append({
+                        "id": f"refine_{i}_{os.urandom(2).hex()}",
+                        "original": orig_match.group(1).strip(),
+                        "proposed": prop_match.group(1).strip(),
+                        "type": type_match.group(1).strip() if type_match else "Improvement",
+                        "reason": reason_match.group(1).strip() if reason_match else "General improvement",
+                        "status": "pending"
+                    })
+            except:
+                continue
+
+        # Fallback for plain text refinements (if the LLM ignored formatting rules)
+        if not suggestions:
+             return {"mode": "refine_legacy", "refined_text": llm_output.strip(), "diff_html": generate_diff_html(base_focus, llm_output.strip())}
+
+        return {"mode": "refine_suggestions", "items": suggestions}
 
     return {"status": "error", "message": "Unknown action"}
 
