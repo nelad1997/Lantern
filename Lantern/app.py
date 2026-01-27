@@ -618,7 +618,6 @@ def main():
         # Default to "Map" unless there are active refinements
         default_sidebar_tab = "🗺️ Thought Map"
         if st.session_state.pending_refine_edits:
-            # Check if there's at least one pending
             if any(p["status"] == "pending" for p in st.session_state.pending_refine_edits):
                 default_sidebar_tab = "✨ Refine Review"
 
@@ -662,12 +661,14 @@ def main():
                     for i, proposal in enumerate(st.session_state.pending_refine_edits):
                         if proposal["status"] != "pending": continue
                         
-                        # Suggestion Title with Info Icon (Light Blue)
+                        # Suggestion Title with Info Icon and Focus Label
                         suggestion_type = proposal.get("type", "Improvement")
+                        scope = proposal.get("scope", "Whole Document")
                         st.markdown(
                             f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 15px; margin-bottom: 5px;">'
                             f'<b style="font-size: 1rem;">{suggestion_type} {i+1}</b>'
-                            f'<span title="Type: {suggestion_type}&#10;Academic Reasoning:&#10;{proposal["reason"]}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.8em; font-weight: bold;">i</span>'
+                            f'<span title="Type: {suggestion_type}&#10;Academic Reasoning:&#10;{proposal["reason"]}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.8em; font-weight: bold;">i</span>'
+                            f'<span style="background-color: #f1f5f9; color: #64748b; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-left: auto;">Focus: {scope}</span>'
                             f'</div>',
                             unsafe_allow_html=True
                         )

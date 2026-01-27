@@ -310,13 +310,19 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 reason_match = re.search(r"Reason:\s*(.*)", clean_block, re.DOTALL | re.IGNORECASE)
                 
                 if orig_match and prop_match:
+                    # Determine scope label
+                    focus_ctx = event_context.get("focus_context", {})
+                    focus_mode = focus_ctx.get("mode", "Whole document")
+                    scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+                    
                     suggestions.append({
                         "id": f"refine_{i}_{os.urandom(2).hex()}",
                         "original": orig_match.group(1).strip(),
                         "proposed": prop_match.group(1).strip(),
                         "type": type_match.group(1).strip() if type_match else "Improvement",
                         "reason": reason_match.group(1).strip() if reason_match else "General improvement",
-                        "status": "pending"
+                        "status": "pending",
+                        "scope": scope_label
                     })
             except:
                 continue
