@@ -856,7 +856,8 @@ def main():
                         scope = item_data.get("scope", "Whole Document") if isinstance(item_data, dict) else "Whole Document"
                         st.markdown(
                              f'<b>{title}</b> '
-                             f'<span title="Academic Factor: {module}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>',
+                             f'<span title="Academic Factor: {module}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span> '
+                             f'<span style="background-color: #f1f5f9; color: #64748b; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Focus: {scope}</span>',
                              unsafe_allow_html=True
                         )
 
@@ -968,7 +969,8 @@ def main():
 
                         st.markdown(
                              f'<b>{title}</b> '
-                             f'<span title="Academic Factor: {module_tag}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>',
+                             f'<span title="Academic Factor: {module_tag}&#10;Focus: {scope}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span> '
+                             f'<span style="background-color: #f1f5f9; color: #64748b; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Focus: {scope}</span>',
                              unsafe_allow_html=True
                         )
 

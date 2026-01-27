@@ -233,7 +233,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             # Determine scope label
             focus_ctx = event_context.get("focus_context", {})
             focus_mode = focus_ctx.get("mode", "Whole document")
-            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph #{focus_ctx.get('block_idx', 1)}"
+            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
 
             meta = {
                 "label": title,
@@ -279,7 +279,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             # Determine scope label
             focus_ctx = event_context.get("focus_context", {})
             focus_mode = focus_ctx.get("mode", "Whole document")
-            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph #{focus_ctx.get('block_idx', 1)}"
+            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
 
             # החזרת אובייקט נתונים ללא הוספה לעץ
             critique_items.append({
