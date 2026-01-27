@@ -60,6 +60,22 @@ def navigate_to_node(tree, node_id):
     else:
         raise ValueError(f"Node {node_id} not found")
 
+def get_nearest_html(tree, node_id):
+    """Recursively finds the nearest HTML metadata up the tree."""
+    if node_id not in tree["nodes"]:
+        return ""
+    
+    node = tree["nodes"][node_id]
+    html = node.get("metadata", {}).get("html")
+    if html:
+        return html
+        
+    parent_id = node.get("parent")
+    if parent_id:
+        return get_nearest_html(tree, parent_id)
+        
+    return ""
+
 def get_node_short_label(node):
     """
     Returns a short label for a node, prioritizing metadata label,

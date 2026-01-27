@@ -96,19 +96,138 @@ def generate_diff_html(old_text: str, new_text: str) -> str:
 
 
 # --- הפונקציה שהייתה חסרה והוחזרה ---
-def apply_fuzzy_replacement(full_text: str, target: str, replacement: str) -> Optional[str]:
-    if not target or not full_text:
+def apply_fuzzy_replacement(full_html: str, target: str, replacement: str) -> Optional[str]:
+    """
+    Improved HTML-aware replacement. Handles tags and entities (like &nbsp;) correctly.
+    """
+    if not target or not full_html:
         return None
-    if target in full_text:
-        return full_text.replace(target, replacement, 1)
+        
+    # 1. Lex HTML into Tokens: (Type, Content, HTML_Index)
+    # Type: 0=Text, 1=Tag, 2=Entity
+    tokens = []
+    i = 0
+    while i < len(full_html):
+        if full_html[i] == '<':
+            # Tag
+            end = full_html.find('>', i)
+            if end != -1:
+                tokens.append((1, full_html[i:end+1], i))
+                i = end + 1
+                continue
+        elif full_html[i] == '&':
+            # Entity?
+            end = full_html.find(';', i)
+            if end != -1 and end - i < 10:
+                tokens.append((2, full_html[i:end+1], i))
+                i = end + 1
+                continue
+        
+        # Plain text
+        tokens.append((0, full_html[i], i))
+        i += 1
 
-    matcher = difflib.SequenceMatcher(None, full_text, target)
-    match = matcher.find_longest_match(0, len(full_text), 0, len(target))
+    # 2. Build plain text and map plain indices back to Token Index
+    plain_text = ""
+    plain_to_token_map = [] # list of token_idx
+    
+    for idx, (type, content, start_idx) in enumerate(tokens):
+        if type == 0: # Text char
+            plain_text += content
+            plain_to_token_map.append(idx)
+        elif type == 2: # Entity
+            # Map common entities to space/char
+            if content == "&nbsp;":
+                plain_text += " "
+            elif content == "&lt;":
+                plain_text += "<"
+            elif content == "&gt;":
+                plain_text += ">"
+            elif content == "&amp;":
+                plain_text += "&"
+            else:
+                plain_text += " " # Fallback
+            plain_to_token_map.append(idx)
+        elif type == 1: # Tag
+            # Map block tags to newlines to match prompt extraction
+            tag_name = re.search(r"^</?([a-z1-6]+)", content.lower())
+            if tag_name:
+                name = tag_name.group(1)
+                if name in ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "br"]:
+                    plain_text += "\n"
+                    plain_to_token_map.append(idx)
 
-    if match.size > len(target) * 0.8:
-        start, end = match.a, match.a + match.size
-        return full_text[:start] + replacement + full_text[end:]
-    return None
+    # 3. Robust Search in plain_text
+    # 3.1 Clean and Normalize target (the text AI wants to replace)
+    clean_target = re.sub(r"\[P\s*\d+\]", "", target, flags=re.IGNORECASE).strip()
+    target_norm = " ".join(clean_target.split()).lower()
+    if not target_norm:
+        return None
+
+    # 3.2 Try Exact Match in Normalized space (Highest Precision)
+    plain_norm = " ".join(plain_text.split()).lower()
+    
+    # 3.3 Find Best Matching Window
+    # We use a sliding window of tokens to find the best match for 'target'
+    best_ratio = 0.0
+    best_range = (-1, -1)
+    
+    # Heuristic: Start searching around where find() would suggest
+    # But for ultimate robustness, we'll use a sequence matcher on the whole thing
+    # or look for clusters of matching words.
+    
+    matcher = difflib.SequenceMatcher(None, plain_text.lower(), clean_target.lower())
+    match = matcher.find_longest_match(0, len(plain_text), 0, len(clean_target))
+    
+    # If the longest exact match is significant, we use it as an anchor
+    if match.size > 10 or match.size > len(clean_target) * 0.3:
+        # Expand around the match to find the actual boundaries
+        # AI often provides a bit more or less context
+        start_idx = match.a - (match.b)
+        end_idx = start_idx + len(clean_target)
+        
+        # Clamp
+        start_idx = max(0, start_idx)
+        end_idx = min(len(plain_text), end_idx + 50) 
+        
+        # Fine-tune window with sequence matcher ratio
+        sub_matcher = difflib.SequenceMatcher(None, plain_text[start_idx:end_idx].lower(), clean_target.lower())
+        best_sub = sub_matcher.find_longest_match(0, end_idx-start_idx, 0, len(clean_target))
+        
+        final_start = start_idx + best_sub.a - best_sub.b
+        final_len = len(clean_target)
+        
+        # Clamp and final check
+        final_start = max(0, final_start)
+        actual_start = final_start
+        actual_len = final_len
+        
+        # If the resulting window is a decent match (>60%), proceed
+        window_text = plain_text[actual_start : actual_start + actual_len].lower()
+        if difflib.SequenceMatcher(None, window_text, clean_target.lower()).ratio() > 0.6:
+            start_idx = actual_start
+            match_len = actual_len
+        else:
+            return None
+    else:
+        # No significant anchor found
+        return None
+
+    # 4. Find the HTML range by checking the token map
+    try:
+        # Start token
+        start_token_idx = plain_to_token_map[start_idx]
+        html_start = tokens[start_token_idx][2]
+        
+        # End token. Handle potential index wrap
+        end_idx_clamped = min(len(plain_to_token_map) - 1, start_idx + match_len - 1)
+        end_token_idx = plain_to_token_map[end_idx_clamped]
+        last_token = tokens[end_token_idx]
+        html_end = last_token[2] + len(last_token[1])
+        
+        return full_html[:html_start] + replacement + full_html[html_end:]
+    except:
+        return None
 
 
 # -------------------------------------
@@ -119,9 +238,19 @@ def decide_anchor(tree: Dict, user_text: Optional[str]) -> str:
 
 
 def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
+    node = tree["nodes"].get(anchor_id)
+    node_summary = node.get("summary", "") if node else ""
+    
+    # If we have a specific user focus (paragraph), we combine it with the node's intent
     if user_text:
-        return user_text.strip()
-    return tree["nodes"][anchor_id]["summary"]
+        clean_text = user_text.strip()
+        if node and node.get("type") != "root":
+            # Include the current node's idea as context for the expansion
+            node_label = node.get("metadata", {}).get("label", "Current Perspective")
+            return f"FOCUS PARAGRAPH:\n{clean_text}\n\nCURRENT PERSPECTIVE/IDEA:\n{node_label}: {node_summary}"
+        return clean_text
+    
+    return node_summary
 
 
 def parse_llm_options(llm_output: str) -> List[str]:
@@ -168,7 +297,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     if not isinstance(action, ActionType):
         raise ValueError("Invalid or missing ActionType")
 
-    anchor_id = decide_anchor(tree, user_text)
+    anchor_id = event_context.get("anchor_id") or decide_anchor(tree, user_text)
     base_focus = build_focus(tree, anchor_id, user_text)
 
     # בניית Constraints
@@ -192,11 +321,29 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         kb_text = "\n\n".join([f"--- FILE: {name} ---\n{content}" for name, content in knowledge_base.items()])
         constraints.append(f"### REFERENCE KNOWLEDGE BASE ###\n{kb_text}")
 
+    # --- DYNAMIC RULES based on Focus Mode ---
+    focus_ctx = event_context.get("focus_context", {})
+    focus_mode = focus_ctx.get("mode", "Whole document")
+    
+    final_user_text = user_text
+    if focus_mode == "Whole document" and user_text:
+        # Inject [PX] markers into the text for the AI
+        paras = [p.strip() for p in user_text.split("\n") if p.strip()]
+        marked_paras = [f"[P{i+1}] {p}" for i, p in enumerate(paras)]
+        final_user_text = "\n\n".join(marked_paras)
+        
+        constraints.append(
+            "MANDATORY CITATION RULE:\n"
+            "The user is analyzing the WHOLE DOCUMENT. Every response (Title/Type) MUST start with "
+            "the corresponding paragraph number in brackets, e.g., '[P1] Title' or '[P4] Improvement'. "
+            "Use the [PX] markers provided in the input text to identify the paragraph number."
+        )
+
     constraints.append("IMPORTANT: Respond in the same language as the input text.")
 
     # שליחה ל-LLM
     constraints_str = "\n".join(constraints) if constraints else ""
-    prompt = build_prompt(action, base_focus, instructions=constraints_str)
+    prompt = build_prompt(action, final_user_text, instructions=constraints_str)
     llm_output = call_llm(prompt)
 
     # --- DIVERGE (הרחבה) - כן נכנס לעץ ---
@@ -304,12 +451,16 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 clean_block = block.replace("**Original:**", "Original:").replace("**Proposed:**", "Proposed:").replace("**Reason:**", "Reason:").replace("**Type:**", "Type:")
                 clean_block = clean_block.replace("**מקור:**", "Original:").replace("**מוצע:**", "Proposed:").replace("**הסבר:**", "Reason:").replace("**סוג:**", "Type:")
                 
-                orig_match = re.search(r"Original:\s*(.*?)(?:\n|Proposed:|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
-                prop_match = re.search(r"Proposed:\s*(.*?)(?:\n|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
-                type_match = re.search(r"Type:\s*(.*?)(?:\n|Reason:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                orig_match = re.search(r"Original:\s*(.*?)(?=Proposed:|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                prop_match = re.search(r"Proposed:\s*(.*?)(?=Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
+                type_match = re.search(r"Type:\s*(.*?)(?=Reason:|$)", clean_block, re.DOTALL | re.IGNORECASE)
                 reason_match = re.search(r"Reason:\s*(.*)", clean_block, re.DOTALL | re.IGNORECASE)
                 
                 if orig_match and prop_match:
+                    # Globally strip any [PX] markers from original/proposed text
+                    orig_clean = re.sub(r"\[P\s*\d+\]", "", orig_match.group(1).strip(), flags=re.IGNORECASE).strip()
+                    prop_clean = re.sub(r"\[P\s*\d+\]", "", prop_match.group(1).strip(), flags=re.IGNORECASE).strip()
+                    
                     # Determine scope label
                     focus_ctx = event_context.get("focus_context", {})
                     focus_mode = focus_ctx.get("mode", "Whole document")
@@ -317,8 +468,8 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                     
                     suggestions.append({
                         "id": f"refine_{i}_{os.urandom(2).hex()}",
-                        "original": orig_match.group(1).strip(),
-                        "proposed": prop_match.group(1).strip(),
+                        "original": orig_clean,
+                        "proposed": prop_clean,
                         "type": type_match.group(1).strip() if type_match else "Improvement",
                         "reason": reason_match.group(1).strip() if reason_match else "General improvement",
                         "status": "pending",

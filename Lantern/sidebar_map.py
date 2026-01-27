@@ -3,7 +3,7 @@ import graphviz
 import os
 import re
 import streamlit.components.v1 as components
-from tree import navigate_to_node, get_node_short_label
+from tree import navigate_to_node, get_node_short_label, get_nearest_html
 
 
 def render_svg_in_sidebar(svg: str, height_px: int = 480):
@@ -149,12 +149,21 @@ def render_sidebar_map(tree, show_header: bool = True):
                 break
 
         def handle_navigation():
+            # GUARD: Do not navigate automatically if AI is thinking or list is refreshing
+            if st.session_state.get("is_thinking"):
+                return
+                
             new_id = st.session_state["nav_selection_box"]
             if new_id != st.session_state.tree["current"]:
                 if "editor_html" in st.session_state:
                     st.session_state.tree["nodes"][st.session_state.tree["current"]].setdefault("metadata", {})["html"] = st.session_state["editor_html"]
                 navigate_to_node(st.session_state.tree, new_id)
-                st.session_state["editor_html"] = st.session_state.tree["nodes"][new_id].get("metadata", {}).get("html", "")
+                st.session_state["editor_html"] = get_nearest_html(st.session_state.tree, new_id)
+                
+                # CRITICAL: Increment version to force Quill re-mount
+                if "editor_version" not in st.session_state:
+                    st.session_state.editor_version = 0
+                st.session_state.editor_version += 1
                 
                 # Auto-pin
                 target_node = st.session_state.tree["nodes"][new_id]
@@ -207,10 +216,10 @@ def render_sidebar_map(tree, show_header: bool = True):
             is_root = (node.get("type") == "root")
             is_in_path = (node_id in active_path)
 
-            if is_root:
-                fill, font, border, width = "#dcfce7", "#14532d", "#22c55e", "3"
-            elif is_current:
+            if is_current:
                 fill, font, border, width = "#7c3aed", "white", "#5b21b6", "4"
+            elif is_root:
+                fill, font, border, width = "#dcfce7", "#14532d", "#22c55e", "3"
             elif is_in_path:
                 fill, font, border, width = "#fff7ed", "#9a3412", "#f97316", "2"
             else:
@@ -224,7 +233,8 @@ def render_sidebar_map(tree, show_header: bool = True):
             scope_code = ""
             if "Paragraph" in scope_raw:
                 try:
-                    p_num = scope_raw.split("#")[-1]
+                    # Robust extraction of the number whether it has # or not
+                    p_num = re.search(r"(\d+)", scope_raw).group(1)
                     scope_code = f"[P{p_num}] "
                 except:
                     scope_code = "[P] "
@@ -290,7 +300,7 @@ def render_sidebar_map(tree, show_header: bool = True):
             st.session_state.bulletproof_history = set()
             st.session_state.selected_paths = []
             
-            if "current_critiques" in st.session_state: st.session_state.current_critiques = []
+            # st.session_state.current_critiques = [] # Keep critiques as requested
             st.session_state.knowledge_base = kb
             st.session_state.editor_version = editor_version
             st.session_state.root_topic_resolved = False
