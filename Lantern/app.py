@@ -187,6 +187,7 @@ st.markdown("""
 .status-reflect { background-color: #fef3c7; color: #92400e; border: 2px solid #fde68a; }
 .status-ready { background-color: #f0fdf4; color: #166534; border: 2px solid #bbf7d0; }
 .status-structure { background-color: #ecfeff; color: #0891b2; border: 2px solid #a5f3fc; }
+.status-refining { background-color: #f5f3ff; color: #5b21b6; border: 2px solid #ddd6fe; }
 .action-bar {
     border: 1px solid #e5e7eb;
     border-radius: 14px;
@@ -274,7 +275,7 @@ def get_ui_state(tree):
              act = st.session_state.pending_action.get("action")
              if act == ActionType.DIVERGE: return "Expanding...", "status-explore"
              if act == ActionType.CRITIQUE: return "Critiquing...", "status-reflect"
-             if act == ActionType.REFINE: return "Refining...", "status-ready"
+             if act == ActionType.REFINE: return "Refining...", "status-refining"
              if act == ActionType.SEGMENT: return "Analyzing structure...", "status-structure"
          return "Thinking...", "status-explore"
 
@@ -499,6 +500,26 @@ def main():
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
+        # Logical Structure View (Always Present Expander)
+        with st.expander("🧩 Logical Structure (AI Map)", expanded=False):
+            paras = st.session_state.get("logical_paragraphs", [])
+            if paras:
+                st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">This mapping groups your text into logical argument units, ignoring titles and formatting.</div>', unsafe_allow_html=True)
+                # Use a scrollable container for long structures
+                with st.container(height=300, border=False):
+                    for i, p in enumerate(paras):
+                        # Clean marker for UI to avoid [P1] [P1]
+                        p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
+                        st.markdown(
+                            f'<div style="margin-bottom: 8px; padding: 8px; background: #f1f5f9; border-radius: 4px; border-left: 3px solid #38bdf8; font-size: 0.85rem;">'
+                            f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
+                            unsafe_allow_html=True
+                        )
+            else:
+                is_scanning = st.session_state.is_thinking and st.session_state.pending_action and st.session_state.pending_action.get("action") == ActionType.SEGMENT
+                msg = "🏮 Analyzing document structure..." if is_scanning else "Waiting for text input to map logical structure..."
+                st.info(msg)
+
         # AI Focus Preview
         with st.expander("🔍 AI Focus Preview", expanded=False):
             st.caption("Exact text Lantern will analyze:")
@@ -508,24 +529,6 @@ def main():
                 f'</div>',
                 unsafe_allow_html=True
             )
-        
-        # Logical Structure View (Always Present Expander)
-        with st.expander("🧩 Logical Structure (AI Map)", expanded=False):
-            paras = st.session_state.get("logical_paragraphs", [])
-            if paras:
-                st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">This mapping groups your text into logical argument units, ignoring titles and formatting.</div>', unsafe_allow_html=True)
-                for i, p in enumerate(paras):
-                    # Clean marker for UI to avoid [P1] [P1]
-                    p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                    st.markdown(
-                        f'<div style="margin-bottom: 8px; padding: 8px; background: #f1f5f9; border-radius: 4px; border-left: 3px solid #38bdf8; font-size: 0.85rem;">'
-                        f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
-                        unsafe_allow_html=True
-                    )
-            else:
-                is_scanning = st.session_state.is_thinking and st.session_state.pending_action and st.session_state.pending_action.get("action") == ActionType.SEGMENT
-                msg = "🏮 Analyzing document structure..." if is_scanning else "Waiting for text input to map logical structure..."
-                st.info(msg)
 
         if st.session_state.get("ai_info_message"):
             c_msg, c_msg_del = st.columns([0.9, 0.1])
