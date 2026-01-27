@@ -266,6 +266,7 @@ st.markdown("""
 # Helpers
 # -------------------------------------------------
 def get_ui_state(tree):
+    # 1. Active thinking or pending AI task takes priority
     if st.session_state.get("is_thinking", False):
          if st.session_state.pending_action:
              act = st.session_state.pending_action.get("action")
@@ -274,23 +275,14 @@ def get_ui_state(tree):
              if act == ActionType.REFINE: return "Refining...", "status-ready"
          return "Thinking...", "status-explore"
 
-    if "last_perspective" in st.session_state:
+    # 2. Review modes (if we have suggestions on screen)
+    if "last_refine_diff" in st.session_state or st.session_state.get("pending_refine_edits"):
+        return "Polishing", "status-ready"
+    
+    if "current_critiques" in st.session_state and st.session_state["current_critiques"]:
         return "Reflecting", "status-reflect"
-    current_node = get_current_node(tree)
-    type_map = {
-        "root": ("Drafting", "status-ready"),
-        "user": ("Drafting", "status-ready"),
-        "ai_diverge": ("Exploring", "status-explore"),
-        "ai_critique": ("Reflecting", "status-reflect"),
-        "refine": ("Polishing", "status-ready"),
-        "critique": ("Reflecting", "status-reflect")
-    }
-    node_type = current_node.get("type", "standard")
-    if node_type in type_map:
-        return type_map[node_type]
-    has_valid_children = any(cid not in st.session_state.banned_ideas for cid in current_node["children"])
-    if has_valid_children:
-        return "Exploring", "status-explore"
+
+    # 3. Default to Drafting for everything else
     return "Drafting", "status-ready"
 
 

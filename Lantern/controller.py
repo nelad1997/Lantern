@@ -160,58 +160,66 @@ def apply_fuzzy_replacement(full_html: str, target: str, replacement: str) -> Op
     # 3. Robust Search in plain_text
     # 3.1 Clean and Normalize target (the text AI wants to replace)
     clean_target = re.sub(r"\[P\s*\d+\]", "", target, flags=re.IGNORECASE).strip()
-    target_norm = " ".join(clean_target.split()).lower()
-    if not target_norm:
-        return None
+    
+    # 3.2 Build a "Normalized" version of plain_text WITH an index map
+    # This maps each character in the 'clean' string back to its index in the 'original' plain_text
+    clean_plain = ""
+    index_map = [] # index_map[i] = index in plain_text
+    
+    def is_significant(c):
+        # We ignore most punctuation and whitespace for the "comparison" string
+        return c.isalnum() or c in " @#$%^&*()_+=[]{}|\\/" # keep some "structural" chars but skip dashes/quotes/dots
 
-    # 3.2 Try Exact Match in Normalized space (Highest Precision)
-    plain_norm = " ".join(plain_text.split()).lower()
+    for i, char in enumerate(plain_text):
+        c_norm = char.lower()
+        # Standardize problematic chars
+        if c_norm in ['–', '—', '\u2013', '\u2014']: c_norm = '-'
+        if c_norm in ['"', '"', '"', '"']: c_norm = '"'
+        if c_norm in ["'", "'", "'", "'"]: c_norm = "'"
+        
+        if is_significant(c_norm):
+            clean_plain += c_norm
+            index_map.append(i)
+        elif not clean_plain or clean_plain[-1] != " ":
+            # Keep a single space to separate words
+            clean_plain += " "
+            index_map.append(i)
+
+    # Normalize target the same way
+    target_clean = ""
+    for char in clean_target:
+        c_norm = char.lower()
+        if c_norm in ['–', '—', '\u2013', '\u2014']: c_norm = '-'
+        if is_significant(c_norm):
+            target_clean += c_norm
+        elif not target_clean or target_clean[-1] != " ":
+            target_clean += " "
     
-    # 3.3 Find Best Matching Window
-    # We use a sliding window of tokens to find the best match for 'target'
-    best_ratio = 0.0
-    best_range = (-1, -1)
+    target_clean = target_clean.strip()
+    if not target_clean: return None
+
+    # 3.3 Find the match in the clean string
+    matcher = difflib.SequenceMatcher(None, clean_plain, target_clean)
+    match = matcher.find_longest_match(0, len(clean_plain), 0, len(target_clean))
     
-    # Heuristic: Start searching around where find() would suggest
-    # But for ultimate robustness, we'll use a sequence matcher on the whole thing
-    # or look for clusters of matching words.
-    
-    matcher = difflib.SequenceMatcher(None, plain_text.lower(), clean_target.lower())
-    match = matcher.find_longest_match(0, len(plain_text), 0, len(clean_target))
-    
-    # If the longest exact match is significant, we use it as an anchor
-    if match.size > 10 or match.size > len(clean_target) * 0.3:
-        # Expand around the match to find the actual boundaries
-        # AI often provides a bit more or less context
-        start_idx = match.a - (match.b)
-        end_idx = start_idx + len(clean_target)
-        
-        # Clamp
-        start_idx = max(0, start_idx)
-        end_idx = min(len(plain_text), end_idx + 50) 
-        
-        # Fine-tune window with sequence matcher ratio
-        sub_matcher = difflib.SequenceMatcher(None, plain_text[start_idx:end_idx].lower(), clean_target.lower())
-        best_sub = sub_matcher.find_longest_match(0, end_idx-start_idx, 0, len(clean_target))
-        
-        final_start = start_idx + best_sub.a - best_sub.b
-        final_len = len(clean_target)
-        
-        # Clamp and final check
-        final_start = max(0, final_start)
-        actual_start = final_start
-        actual_len = final_len
-        
-        # If the resulting window is a decent match (>60%), proceed
-        window_text = plain_text[actual_start : actual_start + actual_len].lower()
-        if difflib.SequenceMatcher(None, window_text, clean_target.lower()).ratio() > 0.6:
-            start_idx = actual_start
-            match_len = actual_len
+    if match.size > len(target_clean) * 0.4:
+        # Success! Map back to original indices
+        start_idx = index_map[match.a]
+        # For the end index, we take the original index of the characters in the match
+        end_clean_idx = min(len(index_map) - 1, match.a + (match.size - 1))
+        # We want to cover the length of the 'original' target, 
+        # but the AI might have provided slightly more/less text.
+        # We'll use the mapped end index but ensure it captures roughly the right range.
+        end_idx_orig = index_map[end_clean_idx]
+        match_len = (end_idx_orig - start_idx) + 1
+    else:
+        # Fallback to a simpler but broader search if mapping failed
+        pos = plain_text.lower().replace('–', '-').find(clean_target.lower().replace('–', '-'))
+        if pos != -1:
+            start_idx = pos
+            match_len = len(clean_target)
         else:
             return None
-    else:
-        # No significant anchor found
-        return None
 
     # 4. Find the HTML range by checking the token map
     try:
@@ -255,23 +263,36 @@ def build_focus(tree: Dict, anchor_id: str, user_text: Optional[str]) -> str:
 
 def parse_llm_options(llm_output: str) -> List[str]:
     """
-    מפרק את פלט ה-LLM לאופציות בצורה רובוסטית.
+    Robustly splits LLM output into separate options/perspectives.
+    Handles various markers like "Title:", " שדה:", bullets, and paragraph markers [P1].
     """
-    # ניקוי פורמטים נפוצים של markdown
-    clean_output = llm_output.replace("**Title:**", "Title:").replace("**Title**:", "Title:")
-    clean_output = clean_output.replace("**Module:**", "Module:").replace("**Module**:", "Module:")
-    clean_output = clean_output.replace("**Explanation:**", "Explanation:").replace("**Explanation**:", "Explanation:")
-    clean_output = clean_output.replace("**Critique:**", "Critique:").replace("**Critique**:", "Critique:")
-
-    # אם יש "Title:", ננסה לפצל לפי זה (כולל מספור לפני)
-    if "Title:" in clean_output:
-        # פיצול לפי התחלות של אפשרויות (Title: או מספר ואז Title:)
-        candidates = re.split(r"(?=\n(?:\d+\.|\*|-)?\s*Title:|^(?:\d+\.|\*|-)?\s*Title:)", clean_output.strip())
-        return [c.strip() for c in candidates if c.strip() and "Title:" in c]
-
-    # fallback לשיטה הישנה של בלוקים
-    blocks = clean_output.split("\n\n")
-    return [block.strip() for block in blocks if len(block.strip()) > 20]
+    if not llm_output:
+        return []
+        
+    # 1. Clean common markdown bolding to simplify matching
+    clean_text = re.sub(r"\*\*(Title|Module|Explanation|Critique|שם|מחלקה|הסבר|ביקורת|כותרת)\*\*:", r"\1:", llm_output, flags=re.IGNORECASE)
+    
+    # 2. Split using lookahead. 
+    # This identifies the start of an option (Title/שם/כותרת) optionally preceded by bullets or [PX].
+    # We look for a newline followed by the marker.
+    split_pattern = r"(?=\n\s*(?:(?:\[P\d+\]|(?:\d+[\.)])|[*•\-])[ \t]*)*(?:Title|שם|כותרת):)"
+    blocks = re.split(split_pattern, clean_text.strip(), flags=re.IGNORECASE)
+    
+    # 3. Filter and clean
+    results = []
+    primary_keys = ["Title", "שם", "כותרת", "Critique", "ביקורת"] # Added critique keys for safety
+    for b in blocks:
+        b = b.strip()
+        # Ensure the block contains at least one of our recognition markers
+        if len(b) > 10 and any(k.lower() + ":" in b.lower() for k in primary_keys):
+            results.append(b)
+            
+    # 4. Fallback if split failed to find anything structured
+    if not results:
+        # Fallback to double newline split
+        results = [b.strip() for b in clean_text.split("\n\n") if len(b.strip()) > 20]
+        
+    return results
 
 
 # --- ניהול אירועים ראשי ---
@@ -346,9 +367,10 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     prompt = build_prompt(action, final_user_text, instructions=constraints_str)
     llm_output = call_llm(prompt)
 
-    # --- DIVERGE (הרחבה) - כן נכנס לעץ ---
     if action == ActionType.DIVERGE:
         options = parse_llm_options(llm_output)
+        # HARD LIMIT: Never process more than 3 options
+        options = options[:3]
         final_options = []
 
         for option in options:
@@ -360,8 +382,8 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 # ניקוי כותרות שדה בצורה גמישה
                 clean_opt = option
                 
-                # regex חכם יותר שתופס וריאציות
-                title_match = re.search(r"(?:Title|שם|נושא):\s*(.*?)(?:\n|Module:|מחלקה:|Explanation:|הסבר:|$)", clean_opt, re.IGNORECASE)
+                # regex חכם יותר שתופס וריאציות כולל כותרת
+                title_match = re.search(r"(?:Title|שם|נושא|כותרת):\s*(.*?)(?:\n|Module:|מחלקה:|Explanation:|הסבר:|$)", clean_opt, re.IGNORECASE)
                 module_match = re.search(r"(?:Module|מחלקה|עקרון):\s*(.*?)(?:\n|Explanation:|הסבר:|$)", clean_opt, re.IGNORECASE)
                 # Explanation/Critique as synonyms
                 exp_match = re.search(r"(?:Explanation|Critique|הסבר|ביקורת):\s*(.*)", clean_opt, re.DOTALL | re.IGNORECASE)
@@ -396,9 +418,10 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
 
         return {"mode": "options", "options": final_options}
 
-    # --- CRITIQUE (ביקורת) - לא נכנס לעץ ---
     if action == ActionType.CRITIQUE:
         options = parse_llm_options(llm_output)
+        # HARD LIMIT: Never process more than 3 options
+        options = options[:3]
         critique_items = []
 
         for opt in options:
@@ -441,25 +464,35 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
 
     if action == ActionType.REFINE:
         suggestions = []
-        # Support various field labels (English/Hebrew) and markdown bolding
-        blocks = re.split(r"(?=\n\s*(?:Original|מקור):|^s*(?:Original|מקור):)", llm_output.strip())
+        # Support various field labels (English/Hebrew) and optional para markers
+        # Split into blocks starting with Original: or [P1] Original:
+        # Use lookahead to find next Original block or end of string
+        blocks = re.split(r"(?=\n\s*(?:\[P\d+\][ \t]*)?(?:Original|מקור):)", llm_output.strip())
         
         for i, block in enumerate(blocks):
             if not block.strip(): continue
             try:
-                # Clean up bolding and common field labels
-                clean_block = block.replace("**Original:**", "Original:").replace("**Proposed:**", "Proposed:").replace("**Reason:**", "Reason:").replace("**Type:**", "Type:")
-                clean_block = clean_block.replace("**מקור:**", "Original:").replace("**מוצע:**", "Proposed:").replace("**הסבר:**", "Reason:").replace("**סוג:**", "Type:")
+                # 1. Standardize field names for easier lookups (bold/hebrew -> plain english)
+                clean_block = re.sub(r"\*\*(Original|Proposed|Reason|Type|מקור|מוצע|הסבר|נימוק|סוג)\*\*:", r"\1:", block, flags=re.IGNORECASE)
+                clean_block = re.sub(r"(?:מקור|מוצע|הסבר|נימוק|סוג):", lambda m: {"מקור": "Original:", "מוצע": "Proposed:", "הסבר": "Reason:", "נימוק": "Reason:", "סוג": "Type:"}.get(m.group(0)[:-1], m.group(0)), clean_block, flags=re.IGNORECASE)
                 
-                orig_match = re.search(r"Original:\s*(.*?)(?=Proposed:|Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
-                prop_match = re.search(r"Proposed:\s*(.*?)(?=Reason:|Type:|$)", clean_block, re.DOTALL | re.IGNORECASE)
-                type_match = re.search(r"Type:\s*(.*?)(?=Reason:|$)", clean_block, re.DOTALL | re.IGNORECASE)
-                reason_match = re.search(r"Reason:\s*(.*)", clean_block, re.DOTALL | re.IGNORECASE)
+                # 2. Extract using non-greedy match until the next field header
+                # This pattern ensures we capture multiple lines.
+                fields = ["Original", "Proposed", "Type", "Reason"]
+                found_fields = {}
+                for f in fields:
+                    # Search for field name followed by text until another field name or end
+                    field_pat = rf"{f}:\s*(.*?)(?=\n\s*(?:{'|'.join(fields)}):|$)"
+                    m = re.search(field_pat, clean_block, re.DOTALL | re.IGNORECASE)
+                    if m:
+                        found_fields[f] = m.group(1).strip()
                 
-                if orig_match and prop_match:
-                    # Globally strip any [PX] markers from original/proposed text
-                    orig_clean = re.sub(r"\[P\s*\d+\]", "", orig_match.group(1).strip(), flags=re.IGNORECASE).strip()
-                    prop_clean = re.sub(r"\[P\s*\d+\]", "", prop_match.group(1).strip(), flags=re.IGNORECASE).strip()
+                if "Original" in found_fields and "Proposed" in found_fields:
+                    # Globally strip any [PX] markers
+                    orig_raw = found_fields["Original"]
+                    prop_raw = found_fields["Proposed"]
+                    orig_clean = re.sub(r"\[P\s*\d+\]", "", orig_raw, flags=re.IGNORECASE).strip()
+                    prop_clean = re.sub(r"\[P\s*\d+\]", "", prop_raw, flags=re.IGNORECASE).strip()
                     
                     # Determine scope label
                     focus_ctx = event_context.get("focus_context", {})
@@ -470,15 +503,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                         "id": f"refine_{i}_{os.urandom(2).hex()}",
                         "original": orig_clean,
                         "proposed": prop_clean,
-                        "type": type_match.group(1).strip() if type_match else "Improvement",
-                        "reason": reason_match.group(1).strip() if reason_match else "General improvement",
+                        "type": found_fields.get("Type", "Improvement"),
+                        "reason": found_fields.get("Reason", "General improvement"),
                         "status": "pending",
                         "scope": scope_label
                     })
             except:
                 continue
 
-        # Fallback for plain text refinements (if the LLM ignored formatting rules)
+        # Fallback for plain text refinements
         if not suggestions:
              return {"mode": "refine_legacy", "refined_text": llm_output.strip(), "diff_html": generate_diff_html(base_focus, llm_output.strip())}
 
