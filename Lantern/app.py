@@ -629,10 +629,11 @@ def main():
                         # Rerun to update Preview UI at the top
                         st.rerun()
                 
-                # --- Initial Segmentation (Only if empty and text exists) ---
+                # --- Initial Segmentation (Only if empty and text is substantial) ---
                 if not st.session_state.is_thinking and not st.session_state.logical_paragraphs:
                     plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                    if plain_text.strip():
+                    # Min 200 chars to avoid wasting tokens on very short drafts
+                    if len(plain_text.strip()) > 200:
                         st.session_state.pending_action = {
                             "action": ActionType.SEGMENT,
                             "user_text": plain_text,
@@ -1143,12 +1144,14 @@ def main():
             except Exception as e:
                 st.error(f"❌ Gemini Error: {e}")
             finally:
-                # Trigger a structural refresh AFTER any main AI action completes (except SEGMENT itself)
+                # Trigger a structural refresh AFTER main actions ONLY if text changed significantly
                 if payload["action"] in [ActionType.CRITIQUE, ActionType.DIVERGE, ActionType.REFINE]:
-                    # Update plain text reference
                     current_node = get_current_node(st.session_state.tree)
                     plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                    if plain_text.strip():
+                    last_text = st.session_state.get("last_segmented_text", "")
+                    
+                    # Only re-scan if text changed or map is missing, and content is substantial
+                    if plain_text.strip() != last_text.strip() and len(plain_text.strip()) > 200:
                         st.session_state.pending_action = {
                             "action": ActionType.SEGMENT,
                             "user_text": plain_text,

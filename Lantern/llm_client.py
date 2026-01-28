@@ -33,7 +33,7 @@ class RateLimiter:
             time.sleep(wait_time)
         self.last_call_time = time.time()
 
-_limiter = RateLimiter(cooldown_seconds=3.0)
+_limiter = RateLimiter(cooldown_seconds=8.0)
 
 
 
