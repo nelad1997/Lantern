@@ -629,17 +629,18 @@ def main():
                         # Rerun to update Preview UI at the top
                         st.rerun()
                 
-                # --- Initial Segmentation (Only if empty and text is substantial) ---
-                if not st.session_state.is_thinking and not st.session_state.logical_paragraphs:
+                # Initial segmentation is now strictly one-time to save tokens
+                if not st.session_state.get("init_scan_done") and not st.session_state.is_thinking:
                     plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                    # Min 200 chars to avoid wasting tokens on very short drafts
-                    if len(plain_text.strip()) > 200:
+                    # Require a larger threshold for the very first automatic auto-mapping
+                    if len(plain_text.strip()) > 500:
                         st.session_state.pending_action = {
                             "action": ActionType.SEGMENT,
                             "user_text": plain_text,
                             "anchor_id": tree["current"]
                         }
                         st.session_state.is_thinking = True
+                        st.session_state.init_scan_done = True
                         st.rerun()
 
 
