@@ -596,6 +596,15 @@ def main():
                         text_proc = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", text_proc).replace("<br>", "\n")
                         plain_text = re.sub("<[^<]+?>", "", text_proc).strip()
                         current_node["metadata"]["draft_plain"] = plain_text
+                        # Update Root Label if this is the root node
+                        if current_node.get("type") == "root" and plain_text:
+                            first_line = plain_text.split("\n")[0].strip()
+                            if first_line and len(first_line) > 5:
+                                # Clean first line from manual markers if any
+                                title_topic = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", first_line, flags=re.IGNORECASE).strip()
+                                if len(title_topic) > 60: title_topic = title_topic[:57] + "..."
+                                current_node["metadata"]["label"] = f"[{title_topic}]"
+                        
                         st.session_state.last_edit_time = time.time()
                         
                         # Automatic Segmentation Trigger (Structural Shift)
@@ -846,7 +855,8 @@ def main():
                 
                 with st.expander(f"📌 {title or 'Pinned Insight'} ({scope})"):
                     st.markdown(text)
-                    if source_context:
+                    # Filter out "undefined" or null contexts
+                    if source_context and source_context.strip().lower() != "undefined":
                         with st.expander("🔍 Analyzed Context", expanded=False):
                             st.caption("Lantern analyzed this specific text for this insight:")
                             st.markdown(f'<div style="font-size: 0.8rem; color: #64748b; background-color: #f8fafc; padding: 10px; border-radius: 4px; border-left: 3px solid #cbd5e1; max-height: 200px; overflow-y: auto;">{source_context}</div>', unsafe_allow_html=True)
@@ -1076,64 +1086,67 @@ def main():
                                 st.session_state.dismissed_suggestions.add(cid)
                                 st.rerun()
 
-        # ==========================================
-        # EXECUTE PENDING AI ACTIONS (Bottom of Loop)
-        # ==========================================
-        if st.session_state.pending_action and st.session_state.is_thinking:
-            if not st.session_state.llm_in_flight:
-                st.session_state.llm_in_flight = True
-                try:
-                    payload = st.session_state.pending_action
-                    focus_context = payload.get("focus_context", {"mode": "Whole document", "block_idx": 1})
-                    
-                    with st.spinner(f"💡 Lantern is {mode_label.lower()}..."):
-                        response = handle_event(st.session_state.tree, UserEventType.ACTION, {
-                            "action": payload["action"],
-                            "anchor_id": payload.get("anchor_id"),
-                            "pinned_context": st.session_state.tree["pinned_items"],
-                            "banned_ideas": st.session_state.banned_ideas,
-                            "user_text": payload["user_text"],
-                            "knowledge_base": st.session_state.get("knowledge_base", {}),
-                            "focus_context": focus_context,
-                            "logical_paragraphs": st.session_state.get("logical_paragraphs", [])
-                        })
-                    
-                    if payload["action"] == ActionType.CRITIQUE:
+
+    # ==========================================
+    # EXECUTE PENDING AI ACTIONS (Top Level)
+    # ==========================================
+    if st.session_state.pending_action and st.session_state.is_thinking:
+        if not st.session_state.llm_in_flight:
+            st.session_state.llm_in_flight = True
+            try:
+                payload = st.session_state.pending_action
+                # Re-fetch mode label for the spinner
+                m_label, _ = get_ui_state(tree)
+                focus_context = payload.get("focus_context", {"mode": "Whole document", "block_idx": 1})
+                
+                with st.spinner(f"💡 Lantern is {m_label.lower()}..."):
+                    response = handle_event(st.session_state.tree, UserEventType.ACTION, {
+                        "action": payload["action"],
+                        "anchor_id": payload.get("anchor_id"),
+                        "pinned_context": st.session_state.tree["pinned_items"],
+                        "banned_ideas": st.session_state.banned_ideas,
+                        "user_text": payload["user_text"],
+                        "knowledge_base": st.session_state.get("knowledge_base", {}),
+                        "focus_context": focus_context,
+                        "logical_paragraphs": st.session_state.get("logical_paragraphs", [])
+                    })
+                
+                if payload["action"] == ActionType.CRITIQUE:
+                    items = response.get("items", [])
+                    if not items:
+                        st.session_state["ai_info_message"] = "🛡️ Lantern analyzed your draft and found it to be logically sound—no further critiques needed at this time."
+                    st.session_state["current_critiques"] = items
+                elif payload["action"] == ActionType.DIVERGE:
+                    options = response.get("options", [])
+                    if not options:
+                        st.session_state["ai_info_message"] = "🌱 Lantern explored alternative paths but concludes the current reasoning is already comprehensive."
+                elif payload["action"] == ActionType.REFINE:
+                    if response.get("mode") == "refine_suggestions":
                         items = response.get("items", [])
                         if not items:
-                            st.session_state["ai_info_message"] = "🛡️ Lantern analyzed your draft and found it to be logically sound—no further critiques needed at this time."
-                        st.session_state["current_critiques"] = items
-                    elif payload["action"] == ActionType.DIVERGE:
-                        options = response.get("options", [])
-                        if not options:
-                            st.session_state["ai_info_message"] = "🌱 Lantern explored alternative paths but concludes the current reasoning is already comprehensive."
-                    elif payload["action"] == ActionType.REFINE:
-                        if response.get("mode") == "refine_suggestions":
-                            items = response.get("items", [])
-                            if not items:
-                                st.session_state["ai_info_message"] = "✨ Lantern polished your draft and finds no granular improvements necessary right now."
-                            st.session_state.pending_refine_edits = items
-                        else:
-                            st.session_state.pending_refine_edits = [{
-                                "id": f"full_refine_{os.urandom(2).hex()}",
-                                "original": payload["user_text"],
-                                "proposed": response.get("refined_text", ""),
-                                "type": "Full Revision",
-                                "reason": "Lantern provided a comprehensive revision of the text.",
-                                "status": "pending",
-                                "scope": focus_context.get("mode", "Whole document")
-                            }]
-                    elif payload["action"] == ActionType.SEGMENT:
-                        paras = response.get("paragraphs", [])
-                        st.session_state.logical_paragraphs = paras
-                        st.session_state.last_segmented_text = payload["user_text"]
-                except Exception as e:
-                    st.error(f"❌ Gemini Error: {e}")
-                finally:
-                    st.session_state.llm_in_flight = False
-                    st.session_state.pending_action = None
-                    st.session_state.is_thinking = False
-                    st.rerun()
+                            st.session_state["ai_info_message"] = "✨ Lantern polished your draft and finds no granular improvements necessary right now."
+                        st.session_state.pending_refine_edits = items
+                    else:
+                        st.session_state.pending_refine_edits = [{
+                            "id": f"full_refine_{os.urandom(2).hex()}",
+                            "original": payload["user_text"],
+                            "proposed": response.get("refined_text", ""),
+                            "type": "Full Revision",
+                            "reason": "Lantern provided a comprehensive revision of the text.",
+                            "status": "pending",
+                            "scope": focus_context.get("mode", "Whole document")
+                        }]
+                elif payload["action"] == ActionType.SEGMENT:
+                    paras = response.get("paragraphs", [])
+                    st.session_state.logical_paragraphs = paras
+                    st.session_state.last_segmented_text = payload["user_text"]
+            except Exception as e:
+                st.error(f"❌ Gemini Error: {e}")
+            finally:
+                st.session_state.llm_in_flight = False
+                st.session_state.pending_action = None
+                st.session_state.is_thinking = False
+                st.rerun()
 
 if __name__ == "__main__":
     main()
