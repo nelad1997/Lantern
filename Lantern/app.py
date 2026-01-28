@@ -306,6 +306,48 @@ def sync_paragraph_selection():
         except:
             pass
 
+def get_structural_segments(current_html):
+    """
+    Deterministic structural segmentation of HTML.
+    Identifies units based on block-level tags and line breaks.
+    Returns a list of clean text strings (segments).
+    """
+    if not current_html or not current_html.strip():
+        return []
+
+    # Clean styling and irrelevant tags
+    no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Heuristic: Find all block-level contents with a lookahead to ensure we don't grab nested tags as separate root blocks immediately 
+    # but the simple regex works well for Quill's flat structure.
+    blocks = re.findall(r"<(p|h[1-6]|div|li|blockquote|br)[^>]*>(.*?)</\1>", no_css, re.DOTALL | re.IGNORECASE)
+    
+    segments = []
+    if blocks:
+        for tag, content in blocks:
+            tag_name = tag.lower()
+            if tag_name.startswith("h"):
+                continue
+            
+            clean_text = re.sub("<[^<]+?>", "", content).replace("&nbsp;", " ").strip()
+            if not clean_text:
+                continue
+                
+            sub_segments = [s.strip() for s in clean_text.split("\n\n") if s.strip()]
+            for ss in sub_segments:
+                if len(ss) > 5:
+                    segments.append(ss)
+    else:
+        plain_text = re.sub("<[^<]+?>", "", no_css).replace("&nbsp;", " ").strip()
+        raw_parts = [p.strip() for p in plain_text.split("\n\n") if p.strip()]
+        if not raw_parts:
+             raw_parts = [p.strip() for p in plain_text.split("\n") if p.strip()]
+        for part in raw_parts:
+            if len(part) > 20: 
+                segments.append(part)
+            
+    return segments
+
 # -------------------------------------------------
 # Main App
 # -------------------------------------------------
@@ -339,6 +381,8 @@ def main():
         st.session_state.just_applied_refine = False
     if "logical_paragraphs" not in st.session_state:
         st.session_state.logical_paragraphs = []
+    if "structural_segments" not in st.session_state:
+        st.session_state.structural_segments = []
     if "last_edit_time" not in st.session_state:
         st.session_state.last_edit_time = 0
 
@@ -384,43 +428,17 @@ def main():
         # --- Focus Context Logical Calculations ---
         current_html = st.session_state.get("editor_html", "")
         
-        # Consistent key reading to prevent 1-turn lag
-        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
+        # Use structural segments as the stable substrate
+        paragraphs_only = st.session_state.get("structural_segments", [])
         
-        # Use LLM-based logical paragraphs if available
-        paragraphs_only = st.session_state.get("logical_paragraphs", [])
-        
+        # Initialize segments if empty and we have content
         if not paragraphs_only and current_html.strip():
-            # Refined Heuristic: Identify block-level tags and skip headers
-            blocks = re.findall(r"<(p|h[1-6]|div|li|blockquote)[^>]*>(.*?)</\1>", current_html, re.DOTALL | re.IGNORECASE)
+            st.session_state.structural_segments = get_structural_segments(current_html)
+            paragraphs_only = st.session_state.structural_segments
             
-            if blocks:
-                for tag, content in blocks:
-                    tag_name = tag.lower()
-                    clean_text = re.sub("<[^<]+?>", "", content).replace("&nbsp;", " ").strip()
-                    if not clean_text: continue
-                    
-                    # SKIP if it's a header tag
-                    if tag_name.startswith("h"):
-                        continue
-                        
-                    # Split by double newlines inside a block
-                    sub_paras = [s.strip() for s in clean_text.split("\n\n") if s.strip()]
-                    for sp in sub_paras:
-                        # Heuristic: if a sub-para is very short and doesn't end with a period, it might be a TITLE in a div - SKIP it
-                        if len(sp) < 80 and not sp.rstrip().endswith((".", "?", "!")):
-                            continue
-                        if len(sp) > 5:
-                            paragraphs_only.append(sp)
-            else:
-                # Fallback: Split by double newlines or single newlines
-                plain_text = re.sub("<[^<]+?>", "", current_html).replace("&nbsp;", " ").strip()
-                raw_parts = [p.strip() for p in plain_text.split("\n") if p.strip()]
-                for part in raw_parts:
-                    # Skip if it looks like a header (short, no punctuation)
-                    if len(part) < 80 and not part.rstrip().endswith((".", "?", "!")):
-                        continue
-                    paragraphs_only.append(part)
+        # Semantic mapping (logical paragraphs) is now a decoupled layer
+        # ... (logic below remains mostly same but uses paragraphs_only)
+        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
 
         # UI moved below buttons
         target_text = ""
@@ -552,41 +570,31 @@ def main():
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
-        # Logical Structure View (Always Present Expander)
-        with st.expander("Logical Structure (AI Map)", expanded=False):
-            paras = st.session_state.get("logical_paragraphs", [])
+        # Document Structure View
+        with st.expander("Paragraph Segmentation", expanded=False):
+            paras = st.session_state.get("structural_segments", [])
+            
             if paras:
-                st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">This mapping groups your text into logical argument units, ignoring titles and formatting.</div>', unsafe_allow_html=True)
-                # Use a scrollable container for long structures
+                st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">These are the paragraphs identified within your draft:</div>', unsafe_allow_html=True)
                 with st.container(height=300, border=False):
                     for i, p in enumerate(paras):
-                        # Clean marker for UI to avoid [P1] [P1]
                         p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
                         st.markdown(
                             f'<div style="margin-bottom: 8px; padding: 8px; background: #f1f5f9; border-radius: 4px; border-left: 3px solid #38bdf8; font-size: 0.85rem;">'
                             f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
                             unsafe_allow_html=True
                         )
+            
             has_content = bool(st.session_state.get("editor_html", "").strip())
-            is_scanning = st.session_state.is_thinking and st.session_state.pending_action and st.session_state.pending_action.get("action") == ActionType.SEGMENT
             
-            if has_content and not is_scanning:
+            if has_content:
                 st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 Refresh Logical Map", use_container_width=True, help="Manually re-scan the document structure if the mapping seems outdated."):
-                     plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                     if plain_text.strip():
-                        st.session_state.pending_action = {
-                            "action": ActionType.SEGMENT,
-                            "user_text": plain_text,
-                            "anchor_id": tree["current"]
-                        }
-                        st.session_state.is_thinking = True
-                        st.rerun()
-            
-            if is_scanning:
-                st.info("🏮 Analyzing document structure...")
+                if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on the current changes in the editor."):
+                     st.session_state.structural_segments = get_structural_segments(st.session_state.get("editor_html", ""))
+                     st.toast("Updated document structure!")
+                     st.rerun()
             elif not has_content:
-                st.info("Waiting for text input to map logical structure...")
+                st.info("Waiting for text input to map the document structure...")
 
         # AI Focus Preview
         with st.expander("AI Focus Preview", expanded=False):
@@ -844,6 +852,7 @@ def main():
                                 escaped_text = html.escape(doc_text)
                                 html_val = f"<p>{escaped_text.replace(chr(10), '<br>')}</p>"
                                 st.session_state["editor_html"] = html_val
+                                st.session_state.structural_segments = get_structural_segments(html_val) # RE-SEGMENT on import
                                 current_node.setdefault("metadata", {})["html"] = html_val
                                 st.session_state.editor_version += 1
                                 st.session_state["last_imported_doc"] = uploaded_doc.name
@@ -969,7 +978,7 @@ def main():
                         c_sel, c_pin, c_del = st.columns([1, 1, 1])
                         
                         with c_sel:
-                             if st.button("✔ Acknowledge Critique", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
+                             if st.button("✔ Acknowledge", key=f"cs_sel_{i}", help="Acknowledge this critique and strengthen your argument (Increments counter)", use_container_width=True):
                                 # Add to persistent history (Increments Strengthened counter)
                                 unique_key = text[:50]
                                 if "bulletproof_history" not in st.session_state:
@@ -987,7 +996,7 @@ def main():
                                 st.rerun()
 
                         with c_pin:
-                            if st.button("📌 Pin", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
+                            if st.button("📌", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
                                 st.session_state.tree["pinned_items"].append({
                                     "id": None,
                                     "title": title,
@@ -1114,7 +1123,7 @@ def main():
                                 
                                 st.rerun()
                         with c_pin:
-                            if st.button("📌 Pin", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
+                            if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
                                 st.session_state.tree["pinned_items"].append({
                                     "id": cid, 
                                     "title": title, 
@@ -1143,7 +1152,12 @@ def main():
                 # We calculate the focus text HERE, after all widgets have had a chance to update.
                 current_html = st.session_state.get("editor_html", "")
                 f_mode = st.session_state.get("promo_focus_mode", "Whole document")
-                paras = st.session_state.get("logical_paragraphs", [])
+                paras = st.session_state.get("structural_segments", [])
+                
+                # Stability: If structural segments were never initialized, do it now
+                if not paras and current_html.strip():
+                    st.session_state.structural_segments = get_structural_segments(current_html)
+                    paras = st.session_state.structural_segments
                 
                 final_text = ""
                 final_block_idx = 1
