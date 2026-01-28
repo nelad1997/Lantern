@@ -19,19 +19,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Rate Limiter ---
+import threading
+
 class RateLimiter:
-    def __init__(self, cooldown_seconds=7.0):
+    def __init__(self, cooldown_seconds=5.0):
         self.cooldown = cooldown_seconds
         self.last_call_time = 0
+        self.lock = threading.Lock()
 
     def wait_if_needed(self):
-        now = time.time()
-        elapsed = now - self.last_call_time
-        if elapsed < self.cooldown:
-            wait_time = self.cooldown - elapsed
-            logger.warning(f"⏳ Rate Limit: Waiting {wait_time:.1f}s before next call...")
-            time.sleep(wait_time)
-        self.last_call_time = time.time()
+        with self.lock:
+            now = time.time()
+            elapsed = now - self.last_call_time
+            if elapsed < self.cooldown:
+                wait_time = self.cooldown - elapsed
+                logger.warning(f"⏳ Rate Limit: Waiting {wait_time:.1f}s before next call...")
+                time.sleep(wait_time)
+            self.last_call_time = time.time()
 
 _limiter = RateLimiter(cooldown_seconds=8.0)
 
@@ -45,6 +49,10 @@ def call_llm(prompt: str) -> str:
     if not api_key:
         logger.error("GEMINI_API_KEY is not set in environment variables")
         raise RuntimeError("GEMINI_API_KEY is not set")
+
+    # Safe logging to verify the key being used
+    key_display = f"{api_key[:4]}...{api_key[-4:]}"
+    logger.info(f"🔑 Using API Key: {key_display}")
 
     genai.configure(api_key=api_key)
 

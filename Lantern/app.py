@@ -291,6 +291,22 @@ def get_ui_state(tree):
 
 
 # -------------------------------------------------
+# State Synchronization Callbacks
+# -------------------------------------------------
+def sync_focus_mode():
+    choice = st.session_state.get("promo_focus_mode_radio", "Whole Document")
+    st.session_state["promo_focus_mode"] = "Whole document" if choice == "Whole Document" else "Specific paragraph"
+
+def sync_paragraph_selection():
+    selection = st.session_state.get("promo_block_radio_selector")
+    if selection:
+        try:
+            idx = int(re.match(r"\[(\d+)\]", selection).group(1)) - 1
+            st.session_state["promo_block_selector_idx"] = idx
+        except:
+            pass
+
+# -------------------------------------------------
 # Main App
 # -------------------------------------------------
 def main():
@@ -356,43 +372,67 @@ def main():
                 unsafe_allow_html=True)
 
         # Logic moved above buttons, UI moved below
-        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
-        focus_info = (
-            "Select how Lantern processes your draft:&#10;&#10;"
-            "📄 Scope: You can send a specific paragraph or the whole document to the AI.&#10;&#10;"
-            "🧩 Mapping: Use the 'Logical Structure (AI Map)' to see how the AI understands your document units.&#10;&#10;"
-            "🔍 Preview: Open the 'AI Focus Preview' to see the exact text that will be sent to the AI before clicking any action button."
+        combined_help_info = (
+            "🤖 AI Actions Guide:&#10;&#10;"
+            "• Expand: Generates 3 academic perspectives to grow your ideas.&#10;"
+            "• Critique: Analyzes for logical gaps or ethical issues.&#10;"
+            "• Refine: Suggests writing improvements.&#10;&#10;"
+            "⚙️ Focus Settings:&#10;&#10;"
+            "Use the 'AI Focus Settings' below to choose if Lantern analyzes the Whole Document or a Specific Paragraph."
         )
 
         # --- Focus Context Logical Calculations ---
         current_html = st.session_state.get("editor_html", "")
         
+        # Consistent key reading to prevent 1-turn lag
+        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
+        
         # Use LLM-based logical paragraphs if available
         paragraphs_only = st.session_state.get("logical_paragraphs", [])
         
-        # Heuristic fallback ONLY if logical paragraphs haven't been generated yet
         if not paragraphs_only and current_html.strip():
-            raw_blocks = re.findall(r"<(p|h[1-6]|div|li|blockquote)[^>]*>(.*?)</\1>", current_html, re.DOTALL | re.IGNORECASE)
-            for tag, inner in raw_blocks:
-                clean_inner = re.sub("<[^<]+?>", "", inner).replace("&nbsp;", " ").strip()
-                if clean_inner and not tag.lower().startswith("h"):
-                    paragraphs_only.append(clean_inner)
+            # Refined Heuristic: Identify block-level tags and skip headers
+            blocks = re.findall(r"<(p|h[1-6]|div|li|blockquote)[^>]*>(.*?)</\1>", current_html, re.DOTALL | re.IGNORECASE)
+            
+            if blocks:
+                for tag, content in blocks:
+                    tag_name = tag.lower()
+                    clean_text = re.sub("<[^<]+?>", "", content).replace("&nbsp;", " ").strip()
+                    if not clean_text: continue
+                    
+                    # SKIP if it's a header tag
+                    if tag_name.startswith("h"):
+                        continue
+                        
+                    # Split by double newlines inside a block
+                    sub_paras = [s.strip() for s in clean_text.split("\n\n") if s.strip()]
+                    for sp in sub_paras:
+                        # Heuristic: if a sub-para is very short and doesn't end with a period, it might be a TITLE in a div - SKIP it
+                        if len(sp) < 80 and not sp.rstrip().endswith((".", "?", "!")):
+                            continue
+                        if len(sp) > 5:
+                            paragraphs_only.append(sp)
+            else:
+                # Fallback: Split by double newlines or single newlines
+                plain_text = re.sub("<[^<]+?>", "", current_html).replace("&nbsp;", " ").strip()
+                raw_parts = [p.strip() for p in plain_text.split("\n") if p.strip()]
+                for part in raw_parts:
+                    # Skip if it looks like a header (short, no punctuation)
+                    if len(part) < 80 and not part.rstrip().endswith((".", "?", "!")):
+                        continue
+                    paragraphs_only.append(part)
 
         # UI moved below buttons
         target_text = ""
         block_idx = 1
         
         if focus_mode == "Specific paragraph" and paragraphs_only:
-            # Extract index and original text from session state (synced from radio below)
-            # Find the index of the current selection in the paragraphs list
-            selection = st.session_state.get("promo_block_radio_selector", f"[1] {paragraphs_only[0][:50]}")
-            try:
-                block_idx = int(re.match(r"\[(\d+)\]", selection).group(1))
-                st.session_state["promo_block_selector_idx"] = block_idx - 1
-                target_text = paragraphs_only[block_idx - 1]
-            except:
-                target_text = paragraphs_only[0]
-                block_idx = 1
+            # Consistent index reading from synchronized state
+            block_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
+            # Bounds check
+            block_idx_raw = max(0, min(block_idx_raw, len(paragraphs_only) - 1))
+            block_idx = block_idx_raw + 1
+            target_text = paragraphs_only[block_idx_raw]
         else:
             # Robust Full Doc Extraction
             # 1. Remove styles
@@ -409,10 +449,23 @@ def main():
             if not target_text and current_html.strip():
                  target_text = re.sub("<[^<]+?>", "", current_html).strip()
 
+        # The 'focused_text' and 'block_idx' variables are now primarily for the PREVIEW UI.
+        # The actual text sent to the AI will be recalculated at the moment of execution
+        # to ensure it uses the absolute latest widget states.
         st.session_state["focused_text"] = target_text
         st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {block_idx}"
 
-        st.markdown('<div class="action-bar"><div class="action-bar-title">AI Reasoning Actions</div>', unsafe_allow_html=True)
+        # Thinking Context Badge
+        current_node_label = get_node_short_label(current_node)
+        if current_node_label == "Idea": current_node_label = "New Path"
+        
+        st.markdown(
+            f'<div class="action-bar" style="display: flex; align-items: center; gap: 8px;">'
+            f'<div class="action-bar-title" style="margin-bottom: 0;">AI Reasoning Actions</div>'
+            f'<span title="{combined_help_info}" style="cursor: pointer; background-color: #38bdf8; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; line-height: 1;">i</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
         
@@ -420,12 +473,7 @@ def main():
             if st.button("🌱 Expand", use_container_width=True, help="Explore alternative reasoning paths and divergent perspectives based on your focus."):
                 st.session_state.pending_action = {
                     "action": ActionType.DIVERGE, 
-                    "user_text": st.session_state["focused_text"],
-                    "anchor_id": tree["current"],
-                    "focus_context": {
-                        "mode": focus_mode,
-                        "block_idx": block_idx
-                    }
+                    "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
@@ -433,12 +481,7 @@ def main():
             if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
                 st.session_state.pending_action = {
                     "action": ActionType.CRITIQUE, 
-                    "user_text": st.session_state["focused_text"],
-                    "anchor_id": tree["current"],
-                    "focus_context": {
-                        "mode": focus_mode,
-                        "block_idx": block_idx
-                    }
+                    "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
@@ -446,63 +489,71 @@ def main():
             if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
                 st.session_state.pending_action = {
                     "action": ActionType.REFINE, 
-                    "user_text": st.session_state["focused_text"],
-                    "anchor_id": tree["current"],
-                    "focus_context": {
-                        "mode": focus_mode,
-                        "block_idx": block_idx
-                    }
+                    "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- (3) Focus Mode Selector UI (NOW BELOW BUTTONS) ---
-        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+        # --- Section Header ---
         st.markdown(
-            f'<div style="display: flex; align-items: center; gap: 5px; margin-bottom: 5px;">'
-            f'<span style="font-size: 1.1rem; font-weight: bold; color: #1e293b;">🧠 Focus Mode</span>'
-            f'<span title="{focus_info}" style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+            f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 25px; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #e2e8f0;">'
+            f'<span style="font-size: 1rem; font-weight: bold; color: #1e293b;">🧠 AI Context & Structure</span>'
             f'</div>',
             unsafe_allow_html=True
         )
-        
-        st.selectbox(
-            "Select AI Context:",
-            ["Whole document", "Specific paragraph"],
-            key="promo_focus_mode",
-            label_visibility="collapsed"
-        )
 
-        if focus_mode == "Specific paragraph" and paragraphs_only:
-            # Create a radio list with previews
-            options = []
-            for i, p in enumerate(paragraphs_only):
-                # Clean marker for preview display
-                p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                preview = (p_clean[:60] + "...") if len(p_clean) > 60 else p_clean
-                options.append(f"[{i+1}] {preview}")
+        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
+
+        # --- (3) Focus Mode Selector UI (Wrapped in Expander) ---
+        with st.expander("AI Focus Settings", expanded=False):
             
-            # Use a scrollable container for long paragraph lists
-            with st.container(height=250, border=True):
-                # Ensure index is within range if list changed
-                saved_idx = st.session_state.get("promo_block_selector_idx", 0)
-                if saved_idx >= len(options):
-                    saved_idx = 0
-                    
-                st.radio(
-                    "Select Target Paragraph:",
-                    options=options,
-                    index=saved_idx,
-                    key="promo_block_radio_selector",
-                    label_visibility="collapsed"
-                )
+            focus_choice = st.radio(
+                "Select AI Context Range:",
+                ["Whole Document", "Specific Paragraph"],
+                key="promo_focus_mode_radio",
+                horizontal=True,
+                label_visibility="collapsed",
+                on_change=sync_focus_mode
+            )
+            # Sync immediately on declaration if missing
+            if "promo_focus_mode" not in st.session_state:
+                sync_focus_mode()
+
+            if focus_choice == "Specific Paragraph" and paragraphs_only:
+                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                # Create a list for the scrollable selector
+                options = []
+                for i, p in enumerate(paragraphs_only):
+                    p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
+                    preview = (p_clean[:60] + "...") if len(p_clean) > 60 else p_clean
+                    options.append(f"[{i+1}] {preview}")
+                
+                # User requested a radio button list within a scrollable container
+                with st.container(height=250, border=True):
+                    saved_idx = st.session_state.get("promo_block_selector_idx", 0)
+                    if saved_idx >= len(options):
+                        saved_idx = 0
+                        
+                    selection = st.radio(
+                        "Select Target Paragraph:",
+                        options=options,
+                        index=saved_idx,
+                        key="promo_block_radio_selector",
+                        label_visibility="collapsed",
+                        on_change=sync_paragraph_selection
+                    )
+                
+                # Sync immediately on declaration to ensure the index is updated in logic
+                sync_paragraph_selection()
+            elif focus_choice == "Specific Paragraph":
+                st.warning("No paragraphs detected. Type some text first.")
 
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
         # Logical Structure View (Always Present Expander)
-        with st.expander("🧩 Logical Structure (AI Map)", expanded=False):
+        with st.expander("Logical Structure (AI Map)", expanded=False):
             paras = st.session_state.get("logical_paragraphs", [])
             if paras:
                 st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">This mapping groups your text into logical argument units, ignoring titles and formatting.</div>', unsafe_allow_html=True)
@@ -538,7 +589,7 @@ def main():
                 st.info("Waiting for text input to map logical structure...")
 
         # AI Focus Preview
-        with st.expander("🔍 AI Focus Preview", expanded=False):
+        with st.expander("AI Focus Preview", expanded=False):
             st.caption("Exact text Lantern will analyze:")
             st.markdown(
                 f'<div style="font-size: 0.9rem; color: #334155; background-color: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; height: 150px; overflow-y: auto; white-space: pre-wrap;">'
@@ -629,19 +680,9 @@ def main():
                         # Rerun to update Preview UI at the top
                         st.rerun()
                 
-                # Initial segmentation is now strictly one-time to save tokens
-                if not st.session_state.get("init_scan_done") and not st.session_state.is_thinking:
-                    plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                    # Require a larger threshold for the very first automatic auto-mapping
-                    if len(plain_text.strip()) > 500:
-                        st.session_state.pending_action = {
-                            "action": ActionType.SEGMENT,
-                            "user_text": plain_text,
-                            "anchor_id": tree["current"]
-                        }
-                        st.session_state.is_thinking = True
-                        st.session_state.init_scan_done = True
-                        st.rerun()
+                # --- Automatic Segmentation Disabled (Fix for Rate Limits) ---
+                # Segmentation now only runs via "Refresh Logical Map" or after explicit AI actions if desired
+                pass
 
 
 
@@ -1097,9 +1138,40 @@ def main():
             st.session_state.llm_in_flight = True
             try:
                 payload = st.session_state.pending_action
+                
+                # --- LATE-BINDING FOCUS CALCULATION ---
+                # We calculate the focus text HERE, after all widgets have had a chance to update.
+                current_html = st.session_state.get("editor_html", "")
+                f_mode = st.session_state.get("promo_focus_mode", "Whole document")
+                paras = st.session_state.get("logical_paragraphs", [])
+                
+                final_text = ""
+                final_block_idx = 1
+                
+                if f_mode == "Specific paragraph" and paras:
+                    saved_idx = st.session_state.get("promo_block_selector_idx", 0)
+                    saved_idx = max(0, min(saved_idx, len(paras)-1))
+                    final_text = paras[saved_idx]
+                    final_block_idx = saved_idx + 1
+                else:
+                    # Full Doc Extraction
+                    no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)
+                    txt_s = re.sub(r"<(p|div|h[1-6]|li|blockquote|br)[^>]*>", "\n", no_css)
+                    txt_s = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", txt_s)
+                    final_text = re.sub("<[^<]+?>", "", txt_s).replace("&nbsp;", " ").strip()
+                    final_text = re.sub(r"\n{3,}", "\n\n", final_text)
+                    if not final_text and current_html.strip():
+                        final_text = re.sub("<[^<]+?>", "", current_html).strip()
+
+                st.session_state["focused_text"] = final_text # Sync preview back for consistency
+                
+                f_context = {
+                    "mode": f_mode,
+                    "block_idx": final_block_idx
+                }
+
                 # Re-fetch mode label for the spinner
                 m_label, _ = get_ui_state(tree)
-                focus_context = payload.get("focus_context", {"mode": "Whole document", "block_idx": 1})
                 
                 with st.spinner(f"💡 Lantern is {m_label.lower()}..."):
                     response = handle_event(st.session_state.tree, UserEventType.ACTION, {
@@ -1107,10 +1179,10 @@ def main():
                         "anchor_id": payload.get("anchor_id"),
                         "pinned_context": st.session_state.tree["pinned_items"],
                         "banned_ideas": st.session_state.banned_ideas,
-                        "user_text": payload["user_text"],
+                        "user_text": final_text,
                         "knowledge_base": st.session_state.get("knowledge_base", {}),
-                        "focus_context": focus_context,
-                        "logical_paragraphs": st.session_state.get("logical_paragraphs", [])
+                        "focus_context": f_context,
+                        "logical_paragraphs": paras
                     })
                 
                 if payload["action"] == ActionType.CRITIQUE:
@@ -1145,22 +1217,10 @@ def main():
             except Exception as e:
                 st.error(f"❌ Gemini Error: {e}")
             finally:
-                # Trigger a structural refresh AFTER main actions ONLY if text changed significantly
-                if payload["action"] in [ActionType.CRITIQUE, ActionType.DIVERGE, ActionType.REFINE]:
-                    current_node = get_current_node(st.session_state.tree)
-                    plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                    last_text = st.session_state.get("last_segmented_text", "")
-                    
-                    # Only re-scan if text changed or map is missing, and content is substantial
-                    if plain_text.strip() != last_text.strip() and len(plain_text.strip()) > 200:
-                        st.session_state.pending_action = {
-                            "action": ActionType.SEGMENT,
-                            "user_text": plain_text,
-                            "anchor_id": st.session_state.tree["current"]
-                        }
-                        st.session_state.is_thinking = True
-                        st.session_state.llm_in_flight = False
-                        st.rerun()
+                # --- Automatic Structural Refresh Disabled (Fix for Rate Limits) ---
+                # We no longer trigger SEGMENT automatically after every action.
+                # The user can manually refresh or we can rely on heuristics.
+                pass
 
                 st.session_state.llm_in_flight = False
                 st.session_state.pending_action = None

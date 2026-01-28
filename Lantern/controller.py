@@ -369,6 +369,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             "the corresponding paragraph number in brackets, e.g., '[P1] Title' or '[P4] Improvement'. "
             "Use the [PX] markers provided in the input text to identify the paragraph number."
         )
+    elif focus_mode == "Specific paragraph" and user_text:
+        # Explicitly tell the AI WHICH paragraph it is analyzing
+        p_idx = focus_ctx.get("block_idx", 1)
+        final_user_text = f"[P{p_idx}] {user_text}"
+        constraints.append(
+            f"FOCUS RULE:\n"
+            f"You are focusing SPECIALLY on Paragraph {p_idx}. "
+            f"Use the marker [P{p_idx}] in your response (Title/Type) to identify this focus."
+        )
 
     constraints.append("IMPORTANT: Respond in the same language as the input text.")
 

@@ -127,15 +127,16 @@ def render_sidebar_map(tree, show_header: bool = True):
 
         st.session_state["show_full_tree"] = False
 
+        current_id = tree["current"]
+
         # Filter nodes
         visible_nodes = []
         for nid in tree["nodes"]:
             if nid in st.session_state.get("banned_ideas", []): continue
             node = tree["nodes"][nid]
-            if node.get("summary") == "Idea" and len(node.get("children", [])) == 0: continue
+            # Ensure current node is always visible, otherwise selection resets to root
+            if nid != current_id and node.get("summary") == "Idea" and len(node.get("children", [])) == 0: continue
             visible_nodes.append(nid)
-
-        current_id = tree["current"]
 
         # --- Dynamic Active Path (Ancestors) ---
         active_path = set()
