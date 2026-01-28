@@ -498,10 +498,6 @@ def main():
                     label_visibility="collapsed"
                 )
 
-            # Shortcut to go back to Whole document
-            if st.button("📄 Done: Switch back to Whole Document", use_container_width=True):
-                st.session_state["promo_focus_mode"] = "Whole document"
-                st.rerun()
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
