@@ -359,9 +359,9 @@ def main():
         focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
         focus_info = (
             "Select how Lantern processes your draft:&#10;&#10;"
-            "📄 Whole Document: Analyze flow and consistency across the entire draft.&#10;&#10;"
-            "🎯 Specific Paragraph: Zoom in on a single section for precise, granular feedback.&#10;&#10;"
-            "🧩 Note: Lantern uses an AI-powered 'Logical Structure' scan (see below) to identify argument units and ensure accurate paragraph citations."
+            "📄 Scope: You can send a specific paragraph or the whole document to the AI.&#10;&#10;"
+            "🧩 Mapping: Use the 'Logical Structure (AI Map)' to see how the AI understands your document units.&#10;&#10;"
+            "🔍 Preview: Open the 'AI Focus Preview' to see the exact text that will be sent to the AI before clicking any action button."
         )
 
         # --- Focus Context Logical Calculations ---
@@ -497,6 +497,11 @@ def main():
                     key="promo_block_radio_selector",
                     label_visibility="collapsed"
                 )
+
+            # Shortcut to go back to Whole document
+            if st.button("📄 Done: Switch back to Whole Document", use_container_width=True):
+                st.session_state["promo_focus_mode"] = "Whole document"
+                st.rerun()
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
 
@@ -515,10 +520,26 @@ def main():
                             f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
                             unsafe_allow_html=True
                         )
-            else:
-                is_scanning = st.session_state.is_thinking and st.session_state.pending_action and st.session_state.pending_action.get("action") == ActionType.SEGMENT
-                msg = "🏮 Analyzing document structure..." if is_scanning else "Waiting for text input to map logical structure..."
-                st.info(msg)
+            has_content = bool(st.session_state.get("editor_html", "").strip())
+            is_scanning = st.session_state.is_thinking and st.session_state.pending_action and st.session_state.pending_action.get("action") == ActionType.SEGMENT
+            
+            if has_content and not is_scanning:
+                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                if st.button("🔄 Refresh Logical Map", use_container_width=True, help="Manually re-scan the document structure if the mapping seems outdated."):
+                     plain_text = current_node.get("metadata", {}).get("draft_plain", "")
+                     if plain_text.strip():
+                        st.session_state.pending_action = {
+                            "action": ActionType.SEGMENT,
+                            "user_text": plain_text,
+                            "anchor_id": tree["current"]
+                        }
+                        st.session_state.is_thinking = True
+                        st.rerun()
+            
+            if is_scanning:
+                st.info("🏮 Analyzing document structure...")
+            elif not has_content:
+                st.info("Waiting for text input to map logical structure...")
 
         # AI Focus Preview
         with st.expander("🔍 AI Focus Preview", expanded=False):
@@ -564,6 +585,8 @@ def main():
                 if c_btn_2.button("🗑", help="Clear Editor: Delete the current draft text.", key="clear_editor_integrated"):
                     st.session_state["editor_html"] = ""
                     current_node.setdefault("metadata", {})["html"] = ""
+                    st.session_state.logical_paragraphs = []
+                    st.session_state.last_segmented_text = ""
                     st.session_state.editor_version += 1
                     st.rerun()
 
@@ -607,39 +630,20 @@ def main():
                         
                         st.session_state.last_edit_time = time.time()
                         
-                        # Automatic Segmentation Trigger (Structural Shift)
-                        if not st.session_state.is_thinking:
-                            curr_segmented = st.session_state.get("last_segmented_text", "")
-                            char_diff = abs(len(plain_text) - len(curr_segmented))
-                            line_diff = plain_text.count("\n") != curr_segmented.count("\n")
-                            
-                            if line_diff or char_diff > 100:
-                                st.session_state.logical_paragraphs = [] # Clear old structure
-                                st.session_state.pending_action = {
-                                    "action": ActionType.SEGMENT,
-                                    "user_text": plain_text,
-                                    "anchor_id": tree["current"]
-                                }
-                                st.session_state.is_thinking = True
-                        
                         # Rerun to update Preview UI at the top
                         st.rerun()
                 
-                # --- Debounce Check (Inactivity) ---
-                if not st.session_state.is_thinking and st.session_state.last_edit_time > 0:
-                    delta = time.time() - st.session_state.last_edit_time
-                    if delta > 3.0:
-                         plain_text = current_node.get("metadata", {}).get("draft_plain", "")
-                         if plain_text and plain_text != st.session_state.get("last_segmented_text", ""):
-                             st.session_state.logical_paragraphs = []
-                             st.session_state.pending_action = {
-                                "action": ActionType.SEGMENT,
-                                "user_text": plain_text,
-                                "anchor_id": tree["current"]
-                             }
-                             st.session_state.is_thinking = True
-                             st.session_state.last_edit_time = 0
-                             st.rerun()
+                # --- Initial Segmentation (Only if empty and text exists) ---
+                if not st.session_state.is_thinking and not st.session_state.logical_paragraphs:
+                    plain_text = current_node.get("metadata", {}).get("draft_plain", "")
+                    if plain_text.strip():
+                        st.session_state.pending_action = {
+                            "action": ActionType.SEGMENT,
+                            "user_text": plain_text,
+                            "anchor_id": tree["current"]
+                        }
+                        st.session_state.is_thinking = True
+                        st.rerun()
 
 
 
@@ -1143,6 +1147,21 @@ def main():
             except Exception as e:
                 st.error(f"❌ Gemini Error: {e}")
             finally:
+                # Trigger a structural refresh AFTER any main AI action completes (except SEGMENT itself)
+                if payload["action"] in [ActionType.CRITIQUE, ActionType.DIVERGE, ActionType.REFINE]:
+                    # Update plain text reference
+                    current_node = get_current_node(st.session_state.tree)
+                    plain_text = current_node.get("metadata", {}).get("draft_plain", "")
+                    if plain_text.strip():
+                        st.session_state.pending_action = {
+                            "action": ActionType.SEGMENT,
+                            "user_text": plain_text,
+                            "anchor_id": st.session_state.tree["current"]
+                        }
+                        st.session_state.is_thinking = True
+                        st.session_state.llm_in_flight = False
+                        st.rerun()
+
                 st.session_state.llm_in_flight = False
                 st.session_state.pending_action = None
                 st.session_state.is_thinking = False

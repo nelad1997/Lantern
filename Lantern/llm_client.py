@@ -37,19 +37,15 @@ _limiter = RateLimiter(cooldown_seconds=3.0)
 
 
 
-def generate_content(action: ActionType, focus: str, system_instructions: str = "") -> str:
+def call_llm(prompt: str) -> str:
     """
-    בונה פרומפט מורכב ושולחת אותו ל-Gemini.
-    מקבלת: סוג פעולה, טקסט פוקוס, ועקרונות מערכת (Markdown).
+    Robust call to Gemini API with retries, rate limiting, and error handling.
     """
-
-    # 1. קבלת מפתח API
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         logger.error("GEMINI_API_KEY is not set in environment variables")
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    # 2. הגדרת Gemini
     genai.configure(api_key=api_key)
 
     safety_settings = {
@@ -59,18 +55,13 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    # הגדרת המודל (שימוש ב-Flash 2.0)
+    # model: Gemini 2.0 Flash (Stable and fast)
     model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+        model_name="gemini-2.0-flash",
         safety_settings=safety_settings,
     )
 
-    # 3. בניית הפרומפט הסופי בעזרת ה-Prompt Builder
-    prompt = build_prompt(action, focus)
-
-    logger.info(f"🚀 Calling Gemini API for Action: {action.name}")
-    
-    # Enforce Rate Limit before call
+    # Enforce Rate Limit
     _limiter.wait_if_needed()
 
     max_retries = 3
@@ -78,38 +69,43 @@ def generate_content(action: ActionType, focus: str, system_instructions: str = 
 
     for attempt in range(max_retries):
         try:
+            logger.info(f"🚀 Calling Gemini API (Attempt {attempt + 1})...")
             response = model.generate_content(prompt)
 
-            if not response or not response.text:
-                logger.warning("Gemini returned an empty response")
+            if not response or not hasattr(response, 'text') or not response.text:
+                # Check for blocked content
+                if hasattr(response, 'candidates') and response.candidates:
+                    finish_reason = response.candidates[0].finish_reason
+                    if finish_reason == 3: # SAFETY
+                         raise RuntimeError("The request was blocked by safety filters. Please try rephrasing.")
+                
+                logger.warning(f"Gemini returned an empty or blocked response. Reason: {getattr(response, 'candidates', [None])[0]}")
                 raise RuntimeError("Empty response from Gemini")
 
             return response.text.strip()
 
         except Exception as e:
-            if "429" in str(e) or "ResourceExhausted" in str(e):
+            err_msg = str(e)
+            if "429" in err_msg or "ResourceExhausted" in err_msg or "Quota" in err_msg:
                 if attempt < max_retries - 1:
                     logger.warning(f"Rate limit hit. Retrying in {retry_delay}s... (Attempt {attempt + 1})")
                     time.sleep(retry_delay)
-                    retry_delay *= 2 # Exponential backoff
+                    retry_delay *= 4 # Aggressive backoff for quota
                     continue
                 else:
-                    logger.error("Rate limit exceeded consistently. Please wait a minute.")
-                    raise RuntimeError("מכסת הקריאות ל-API הסתיימה לבינתיים. אנא המתן דקה ונסה שוב.")
+                    logger.error("Rate limit exceeded consistently.")
+                    raise RuntimeError("מכסת הקריאות (Quota/TPM) הסתיימה לבינתיים. אנא המתן כדקה ונסה שוב.")
             
+            if "400" in err_msg and "model" in err_msg.lower():
+                 logger.error(f"Invalid model name or configuration: {e}")
+                 raise RuntimeError("שגיאת תצורה במודל הבינה המלאכותית (Invalid Model).")
+
             logger.error(f"Error during Gemini API call: {e}")
             raise e
 
-
-# פונקציית עזר למקרה שצריך קריאה ישירה (תאימות לאחור)
-def call_llm(prompt: str) -> str:
-    """קריאה ישירה למודל עם פרומפט מוכן"""
-    api_key = os.getenv("GEMINI_API_KEY")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    
-    # Enforce Rate Limit
-    _limiter.wait_if_needed()
-    
-    response = model.generate_content(prompt)
-    return response.text.strip()
+# Legacy compatibility
+def generate_content(action: ActionType, focus: str, system_instructions: str = "") -> str:
+    """Wrapper for call_llm using the old signature if needed."""
+    from prompt_builder import build_prompt
+    prompt = build_prompt(action, focus)
+    return call_llm(prompt)

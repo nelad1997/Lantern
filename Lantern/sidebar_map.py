@@ -169,7 +169,14 @@ def render_sidebar_map(tree, show_header: bool = True):
                 target_node = st.session_state.tree["nodes"][new_id]
                 if target_node.get("type") != "root":
                     meta = target_node.get("metadata", {})
-                    pin_obj = {"id": new_id, "title": meta.get("label", get_node_short_label(target_node)), "text": meta.get("explanation", target_node.get("summary", "")), "type": "idea"}
+                    pin_obj = {
+                        "id": new_id, 
+                        "title": meta.get("label", get_node_short_label(target_node)), 
+                        "text": meta.get("explanation", target_node.get("summary", "")), 
+                        "type": "idea",
+                        "scope": meta.get("scope", "Whole Document"),
+                        "source_context": meta.get("source_context", "")
+                    }
                     if not any(isinstance(item, dict) and item.get("id") == new_id for item in st.session_state.tree["pinned_items"]):
                         st.session_state.tree["pinned_items"].append(pin_obj)
 
@@ -242,6 +249,11 @@ def render_sidebar_map(tree, show_header: bool = True):
                 scope_code = "[WD] "
             
             base_label_raw = node_id_to_label.get(node_id, get_node_short_label(node))
+            
+            # Deduplication: If base_label_raw already starts with a marker, strip it before prepending scope_code
+            if scope_code.strip():
+                 base_label_raw = re.sub(r"^\[P\s*\d+\]\s*", "", base_label_raw, flags=re.IGNORECASE).strip()
+
             display_label = f"{scope_code}{base_label_raw}"
 
             import textwrap
