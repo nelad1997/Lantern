@@ -342,12 +342,11 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
         kb_text = "\n\n".join([f"--- FILE: {name} ---\n{content}" for name, content in knowledge_base.items()])
         constraints.append(f"### REFERENCE KNOWLEDGE BASE ###\n{kb_text}")
 
-    # --- DYNAMIC RULES based on Focus Mode ---
     focus_ctx = event_context.get("focus_context", {})
-    focus_mode = focus_ctx.get("mode", "Whole document")
+    focus_mode = focus_ctx.get("mode", "Whole Document")
     
     final_user_text = user_text
-    if focus_mode == "Whole document" and user_text:
+    if focus_mode == "Whole Document" and user_text:
         # Check for logical paragraphs provided by the UI state
         logical_paras = event_context.get("logical_paragraphs", [])
         if logical_paras:
@@ -369,7 +368,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             "the corresponding paragraph number in brackets, e.g., '[P1] Title' or '[P4] Improvement'. "
             "Use the [PX] markers provided in the input text to identify the paragraph number."
         )
-    elif focus_mode == "Specific paragraph" and user_text:
+    elif focus_mode == "Specific Paragraph" and user_text:
         # Explicitly tell the AI WHICH paragraph it is analyzing
         p_idx = focus_ctx.get("block_idx", 1)
         final_user_text = f"[P{p_idx}] {user_text}"
@@ -379,7 +378,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             f"Use the marker [P{p_idx}] in your response (Title/Type) to identify this focus."
         )
 
-    constraints.append("IMPORTANT: Respond in the same language as the input text.")
+    constraints.append("CRITICAL: Respond in the same language as the input text (e.g., if input is Hebrew, response MUST be Hebrew).")
 
     # שליחה ל-LLM
     constraints_str = "\n".join(constraints) if constraints else ""
@@ -427,7 +426,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
             if not explanation or len(explanation) < 5: continue
 
             # Determine scope label
-            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+            scope_label = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
             
             # If marker found in title (even in Whole Document mode), update scope for better UI badge
             para_match_final = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
@@ -488,7 +487,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 pass
 
             # Determine scope label
-            scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+            scope_label = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
             
             # If marker found in title (even in Whole Document mode), update scope for better UI badge
             para_match_final = re.search(r"(\[P\s*\d+\])", title, re.IGNORECASE)
@@ -542,15 +541,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                     
                     # Determine scope label
                     focus_ctx = event_context.get("focus_context", {})
-                    focus_mode = focus_ctx.get("mode", "Whole document")
-                    scope_label = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
+                    focus_mode = focus_ctx.get("mode", "Whole Document")
+                    scope_label = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {focus_ctx.get('block_idx', 1)}"
                     
                     suggestion_type = found_fields.get("Type", "Improvement")
                     # Remove any existing [PX] from type to avoid doubles
                     suggestion_type = re.sub(r"\[P\s*\d+\]", "", suggestion_type, flags=re.IGNORECASE).strip()
                     
                     # Ensure [PX] is in the type if in Whole Document mode
-                    if focus_mode == "Whole document":
+                    if focus_mode == "Whole Document":
                         # Search for marker in the whole block (AI might put it in Type or Reason)
                         para_match = re.search(r"(\[P\s*\d+\])", block, re.IGNORECASE)
                         if para_match:

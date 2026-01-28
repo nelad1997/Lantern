@@ -3,7 +3,7 @@ import graphviz
 import os
 import re
 import streamlit.components.v1 as components
-from tree import navigate_to_node, get_node_short_label, get_nearest_html
+from tree import init_tree, navigate_to_node, get_node_short_label, get_nearest_html
 
 
 def render_svg_in_sidebar(svg: str, height_px: int = 480):
@@ -298,32 +298,30 @@ def render_sidebar_map(tree, show_header: bool = True):
             f'</div>',
             unsafe_allow_html=True
         )
-        if st.button("🗑", help="Reset Full Tree: Delete all branches and context.", use_container_width=True):
-            editor_html = st.session_state.get("editor_html", "")
-            editor_version = st.session_state.get("editor_version", 0)
-            kb = st.session_state.get("knowledge_base", {})
+        if st.button("🗑", help="Reset Full Tree: Delete all branches and AI context (keeps your text).", use_container_width=True):
+            # Tree Reset: Clear branches/context but KEEP text
+            current_text = st.session_state.get("editor_html", "")
             
-            from tree import init_tree
-            st.session_state.tree = init_tree("")
+            st.session_state.tree = init_tree("") # Start with empty root
+            # Sync existing text to the new root node
             root_id = st.session_state.tree["current"]
-            st.session_state.tree["nodes"][root_id].setdefault("metadata", {})["html"] = editor_html
+            st.session_state.tree["nodes"][root_id].setdefault("metadata", {})["html"] = current_text
             
+            # Wiping session state context (AI history)
             st.session_state.banned_ideas = []
             st.session_state.dismissed_suggestions = set()
             st.session_state.bulletproof_history = set()
             st.session_state.selected_paths = []
+            st.session_state.current_critiques = []
+            st.session_state.pending_refine_edits = []
+            st.session_state.focused_text = ""
             
-            # st.session_state.current_critiques = [] # Keep critiques as requested
-            st.session_state.knowledge_base = kb
-            st.session_state.editor_version = editor_version
+            # Reset UI/Meta state
             st.session_state.root_topic_resolved = False
-            st.session_state.logical_paragraphs = []
-            st.session_state.last_segmented_text = ""
             st.session_state.last_edit_time = 0
+            st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
             
-            if os.path.exists("lantern_autosave.json"):
-                try: os.remove("lantern_autosave.json")
-                except: pass
+            st.toast("Thought tree has been reset. Your draft is preserved.", icon="🌳")
             st.rerun()
 
     # --- Main Expansion ---

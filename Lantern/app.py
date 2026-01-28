@@ -295,16 +295,27 @@ def get_ui_state(tree):
 # -------------------------------------------------
 def sync_focus_mode():
     choice = st.session_state.get("promo_focus_mode_radio", "Whole Document")
-    st.session_state["promo_focus_mode"] = "Whole document" if choice == "Whole Document" else "Specific paragraph"
+    st.session_state["promo_focus_mode"] = "Whole Document" if choice == "Whole Document" else "Specific Paragraph"
 
 def sync_paragraph_selection():
+    # Attempt to pull from the specific widget key
     selection = st.session_state.get("promo_block_radio_selector")
     if selection:
         try:
-            idx = int(re.match(r"\[(\d+)\]", selection).group(1)) - 1
-            st.session_state["promo_block_selector_idx"] = idx
+            # Flexible regex to catch [N], [P N], or just N at the start
+            match = re.search(r"(\d+)", selection)
+            if match:
+                idx = int(match.group(1)) - 1
+                st.session_state["promo_block_selector_idx"] = idx
         except:
             pass
+    
+    # Fallback to ensure we have a valid index if mode is Specific Paragraph
+    if st.session_state.get("promo_focus_mode") == "Specific Paragraph":
+        saved_idx = st.session_state.get("promo_block_selector_idx", 0)
+        paras = st.session_state.get("structural_segments", [])
+        if paras:
+            st.session_state["promo_block_selector_idx"] = max(0, min(saved_idx, len(paras)-1))
 
 def get_structural_segments(current_html):
     """
@@ -385,9 +396,10 @@ def main():
         st.session_state.structural_segments = []
     if "last_edit_time" not in st.session_state:
         st.session_state.last_edit_time = 0
-
-    if "last_edit_time" not in st.session_state:
-        st.session_state.last_edit_time = 0
+    if "promo_focus_mode" not in st.session_state:
+        st.session_state.promo_focus_mode = "Whole Document"
+    if "promo_block_selector_idx" not in st.session_state:
+        st.session_state.promo_block_selector_idx = 0
 
     tree = st.session_state.tree
     current_node = get_current_node(tree)
@@ -422,29 +434,29 @@ def main():
             "• Critique: Analyzes for logical gaps or ethical issues.&#10;"
             "• Refine: Suggests writing improvements.&#10;&#10;"
             "⚙️ Focus Settings:&#10;&#10;"
-            "Use the 'AI Focus Settings' below to choose if Lantern analyzes the Whole Document or a Specific Paragraph."
+            "Choose between 'Whole Document' or 'Specific Paragraph' for AI focus.&#10;&#10;"
+            "⚠️ IMPORTANT: If you make significant changes to your draft, please go to 'Paragraph Segmentation' below and click 'Refresh' to ensure the AI's focus remains accurate."
         )
 
         # --- Focus Context Logical Calculations ---
         current_html = st.session_state.get("editor_html", "")
         
+        # Stability: Ensure segments exist before logic starts
+        if not st.session_state.get("structural_segments") and current_html.strip():
+            st.session_state.structural_segments = get_structural_segments(current_html)
+
         # Use structural segments as the stable substrate
         paragraphs_only = st.session_state.get("structural_segments", [])
         
-        # Initialize segments if empty and we have content
-        if not paragraphs_only and current_html.strip():
-            st.session_state.structural_segments = get_structural_segments(current_html)
-            paragraphs_only = st.session_state.structural_segments
-            
         # Semantic mapping (logical paragraphs) is now a decoupled layer
         # ... (logic below remains mostly same but uses paragraphs_only)
-        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
+        focus_mode = st.session_state.get("promo_focus_mode", "Whole Document")
 
         # UI moved below buttons
         target_text = ""
         block_idx = 1
         
-        if focus_mode == "Specific paragraph" and paragraphs_only:
+        if focus_mode == "Specific Paragraph" and paragraphs_only:
             # Consistent index reading from synchronized state
             block_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
             # Bounds check
@@ -471,7 +483,7 @@ def main():
         # The actual text sent to the AI will be recalculated at the moment of execution
         # to ensure it uses the absolute latest widget states.
         st.session_state["focused_text"] = target_text
-        st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole document" else f"Paragraph {block_idx}"
+        st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {block_idx}"
 
         # Thinking Context Badge
         current_node_label = get_node_short_label(current_node)
@@ -513,98 +525,111 @@ def main():
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- Section Header ---
-        st.markdown(
-            f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 25px; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #e2e8f0;">'
-            f'<span style="font-size: 1rem; font-weight: bold; color: #1e293b;">🧠 AI Context & Structure</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-        focus_mode = st.session_state.get("promo_focus_mode", "Whole document")
-
-        # --- (3) Focus Mode Selector UI (Wrapped in Expander) ---
-        with st.expander("AI Focus Settings", expanded=False):
+        # --- (3) AI Context & Structure "Folder" ---
+        # --- (3) AI Context & Structure "Folder" ---
+        with st.expander("🧠 AI Context & Structure", expanded=True):
+            tab1, tab2, tab3 = st.tabs(["🎯 Focus Range", "📑 Segmentation", "👁️ Focus Preview"])
             
-            focus_choice = st.radio(
-                "Select AI Context Range:",
-                ["Whole Document", "Specific Paragraph"],
-                key="promo_focus_mode_radio",
-                horizontal=True,
-                label_visibility="collapsed",
-                on_change=sync_focus_mode
-            )
-            # Sync immediately on declaration if missing
-            if "promo_focus_mode" not in st.session_state:
-                sync_focus_mode()
-
-            if focus_choice == "Specific Paragraph" and paragraphs_only:
-                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                # Create a list for the scrollable selector
-                options = []
-                for i, p in enumerate(paragraphs_only):
-                    p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                    preview = (p_clean[:60] + "...") if len(p_clean) > 60 else p_clean
-                    options.append(f"[{i+1}] {preview}")
+            with tab1:
+                # Sub-section: Focus Range
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>AI Focus Range</b> '
+                    f'<span title="Select whether the AI should analyze your Whole Document or focus on a Specific Paragraph for more granular feedback." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
                 
-                # User requested a radio button list within a scrollable container
-                with st.container(height=250, border=True):
-                    saved_idx = st.session_state.get("promo_block_selector_idx", 0)
-                    if saved_idx >= len(options):
-                        saved_idx = 0
+                # RE-FETCH/VERIFY paragraphs for this specific tab to prevent "disappearing" bug
+                current_paras = st.session_state.get("structural_segments", [])
+                if not current_paras and st.session_state.get("editor_html", "").strip():
+                    st.session_state.structural_segments = get_structural_segments(st.session_state.get("editor_html", ""))
+                    current_paras = st.session_state.structural_segments
+
+                focus_choice = st.radio(
+                    "Select AI Focus Range:",
+                    ["Whole Document", "Specific Paragraph"],
+                    key="promo_focus_mode_radio",
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    on_change=sync_focus_mode
+                )
+                
+                # Sync immediately on declaration if missing
+                if "promo_focus_mode" not in st.session_state:
+                    sync_focus_mode()
+
+                if focus_choice == "Specific Paragraph":
+                    if current_paras:
+                        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+                        options = []
+                        for i, p in enumerate(current_paras):
+                            # Clean label for radio
+                            p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
+                            preview = (p_clean[:60] + "...") if len(p_clean) > 60 else p_clean
+                            options.append(f"[{i+1}] {preview}")
                         
-                    selection = st.radio(
-                        "Select Target Paragraph:",
-                        options=options,
-                        index=saved_idx,
-                        key="promo_block_radio_selector",
-                        label_visibility="collapsed",
-                        on_change=sync_paragraph_selection
-                    )
-                
-                # Sync immediately on declaration to ensure the index is updated in logic
-                sync_paragraph_selection()
-            elif focus_choice == "Specific Paragraph":
-                st.warning("No paragraphs detected. Type some text first.")
-
-        
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-
-        # Document Structure View
-        with st.expander("Paragraph Segmentation", expanded=False):
-            paras = st.session_state.get("structural_segments", [])
-            
-            if paras:
-                st.markdown('<div style="font-size: 0.85rem; color: #64748b; margin-bottom: 10px;">These are the paragraphs identified within your draft:</div>', unsafe_allow_html=True)
-                with st.container(height=300, border=False):
-                    for i, p in enumerate(paras):
-                        p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                        st.markdown(
-                            f'<div style="margin-bottom: 8px; padding: 8px; background: #f1f5f9; border-radius: 4px; border-left: 3px solid #38bdf8; font-size: 0.85rem;">'
-                            f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
-                            unsafe_allow_html=True
+                        saved_idx = st.session_state.get("promo_block_selector_idx", 0)
+                        if saved_idx >= len(options):
+                            saved_idx = 0
+                            
+                        st.radio(
+                            "Select Target Paragraph:",
+                            options=options,
+                            index=saved_idx,
+                            key="promo_block_radio_selector",
+                            label_visibility="collapsed",
+                            on_change=sync_paragraph_selection
                         )
-            
-            has_content = bool(st.session_state.get("editor_html", "").strip())
-            
-            if has_content:
-                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on the current changes in the editor."):
-                     st.session_state.structural_segments = get_structural_segments(st.session_state.get("editor_html", ""))
-                     st.toast("Updated document structure!")
-                     st.rerun()
-            elif not has_content:
-                st.info("Waiting for text input to map the document structure...")
+                        sync_paragraph_selection()
+                    else:
+                        st.warning("No paragraphs detected. Type some text first.")
 
-        # AI Focus Preview
-        with st.expander("AI Focus Preview", expanded=False):
-            st.caption("Exact text Lantern will analyze:")
-            st.markdown(
-                f'<div style="font-size: 0.9rem; color: #334155; background-color: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; height: 150px; overflow-y: auto; white-space: pre-wrap;">'
-                f'{st.session_state.get("focused_text", "No text detected. Start typing in the editor below.")}'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+            with tab2:
+                # Sub-section: Paragraph Segmentation
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>Paragraph Segmentation</b> '
+                    f'<span title="View the document units identified by Lantern. AI actions (like Critique or Refine) use these structural markers to provide targeted improvements. Use Refresh if you make major structural changes." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                paras = st.session_state.get("structural_segments", [])
+                if paras:
+                    st.markdown('<div style="font-size: 0.8rem; color: #64748b; margin-bottom: 8px;">Units identified in your draft:</div>', unsafe_allow_html=True)
+                    with st.container(height=250, border=False):
+                        for i, p in enumerate(paras):
+                            p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
+                            st.markdown(
+                                f'<div style="margin-bottom: 8px; padding: 6px; background: #f8fafc; border-radius: 4px; border-left: 2px solid #38bdf8; font-size: 0.8rem;">'
+                                f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
+                                unsafe_allow_html=True
+                            )
+                
+                has_content = bool(st.session_state.get("editor_html", "").strip())
+                if has_content:
+                    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+                    if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on current changes."):
+                        st.session_state.structural_segments = get_structural_segments(st.session_state.get("editor_html", ""))
+                        st.toast("Updated document structure!")
+                        st.rerun()
+
+            with tab3:
+                # Sub-section: AI Focus Preview
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>AI Focus Preview</b> '
+                    f'<span title="This peek shows the exact text and markers Lantern will send to the AI. Use this to verify that the selection is correct before running an action." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                st.caption("Exact text Lantern will analyze:")
+                st.markdown(
+                    f'<div style="font-size: 0.85rem; color: #475569; background-color: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; height: 180px; overflow-y: auto; white-space: pre-wrap;">'
+                    f'{st.session_state.get("focused_text", "No text detected.")}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
 
         if st.session_state.get("ai_info_message"):
             c_msg, c_msg_del = st.columns([0.9, 0.1])
@@ -637,12 +662,39 @@ def main():
                 
                 # Use columns for right-alignment of the button
                 c_btn_1, c_btn_2 = st.columns([0.94, 0.06])
-                if c_btn_2.button("🗑", help="Clear Editor: Delete the current draft text.", key="clear_editor_integrated"):
-                    st.session_state["editor_html"] = ""
-                    current_node.setdefault("metadata", {})["html"] = ""
+                if c_btn_2.button("🗑", help="Full System Reset: Start from scratch (Wipes editor, tree, and all AI context).", key="clear_editor_integrated"):
+                    # Full Workspace Wipe Logic
+                    st.session_state.tree = init_tree("") # Start with empty root
+                    st.session_state["editor_html"] = ""  # WIPE TEXT
+                    
+                    # Wiping session state context
+                    st.session_state.banned_ideas = []
+                    st.session_state.dismissed_suggestions = set()
+                    st.session_state.bulletproof_history = set()
+                    st.session_state.selected_paths = []
+                    st.session_state.current_critiques = []
+                    st.session_state.pending_refine_edits = []
+                    st.session_state.structural_segments = []
                     st.session_state.logical_paragraphs = []
-                    st.session_state.last_segmented_text = ""
+                    st.session_state.focused_text = ""
+                    st.session_state.promo_block_selector_idx = 0
+                    if "promo_block_radio_selector" in st.session_state:
+                        del st.session_state["promo_block_radio_selector"]
+                    st.session_state.promo_focus_mode = "Whole Document"
+                    if "promo_focus_mode_radio" in st.session_state:
+                        del st.session_state["promo_focus_mode_radio"]
+                    
+                    # Reset UI/Meta state
+                    st.session_state.root_topic_resolved = False
+                    st.session_state.last_edit_time = 0
                     st.session_state.editor_version += 1
+                    
+                    if os.path.exists("lantern_autosave.json"):
+                        try: os.remove("lantern_autosave.json")
+                        except: pass
+                    
+                    st.toast("Lantern has been reset to its initial state.", icon="🏮")
+                    st.rerun()
                     st.rerun()
 
                 # Prepend CSS to the value so it renders inside the iframe
@@ -825,7 +877,7 @@ def main():
         st.markdown(
             """
             <div style="text-align: center; margin-bottom: 15px;">
-                <span title="Welcome to Lantern 💡&#10;What is Lantern?&#10;An intelligent environment for academic writing and reasoning. It combines a text editor with an AI assistant to facilitate in-depth research and thought management.&#10;How to use it?&#10;&#10;✍️ Write: Draft your initial ideas in the main text editor.&#10;🧠 Collaborate with AI:&#10;🌱 Expand: Explore new lines of reasoning and deepen your discussion.&#10;⚖️ Critique: Receive constructive feedback grounded in academic principles.&#10;✨ Refine: Polish your phrasing, precision, and style.&#10;🗺️ Navigate: Use the Thought Tree (sidebar) to manage various drafts and focus on specific sections of your work.&#10;📚 Enrich: Upload articles and documents to the Knowledge Base to ground the system's responses in your specific source material." style="cursor: help; color: #555; border-bottom: 1px dotted #777; font-size: 0.9em;">
+                <span title="Welcome to Lantern 💡&#10;What is Lantern?&#10;An intelligent environment for academic writing and reasoning. It combines a text editor with an AI assistant to facilitate in-depth research and thought management.&#10;How to use it?&#10;&#10;✍️ Write: Draft your initial ideas in the main text editor.&#10;🧠 Collaborate with AI:&#10;🌱 Expand: Explore new lines of reasoning and deepen your discussion.&#10;⚖️ Critique: Receive constructive feedback grounded in academic principles.&#10;✨ Refine: Polish your phrasing, precision, and style.&#10;🗺️ Navigate: Use the Thought Tree (sidebar) to manage various drafts and focus on specific sections of your work.&#10;📚 Enrich: Upload articles and documents to the Knowledge Base to ground the system's responses in your specific source material.&#10;&#10;⚠️ Pro-Tip: When refining your draft, periodically check the 'Paragraph Segmentation' section to ensure the building blocks are correctly mapped for the AI." style="cursor: help; color: #555; border-bottom: 1px dotted #777; font-size: 0.9em;">
                     ℹ️ How to use Lantern
                 </span>
             </div>
@@ -1151,7 +1203,7 @@ def main():
                 # --- LATE-BINDING FOCUS CALCULATION ---
                 # We calculate the focus text HERE, after all widgets have had a chance to update.
                 current_html = st.session_state.get("editor_html", "")
-                f_mode = st.session_state.get("promo_focus_mode", "Whole document")
+                f_mode = st.session_state.get("promo_focus_mode", "Whole Document")
                 paras = st.session_state.get("structural_segments", [])
                 
                 # Stability: If structural segments were never initialized, do it now
@@ -1162,7 +1214,7 @@ def main():
                 final_text = ""
                 final_block_idx = 1
                 
-                if f_mode == "Specific paragraph" and paras:
+                if f_mode == "Specific Paragraph" and paras:
                     saved_idx = st.session_state.get("promo_block_selector_idx", 0)
                     saved_idx = max(0, min(saved_idx, len(paras)-1))
                     final_text = paras[saved_idx]
@@ -1222,7 +1274,7 @@ def main():
                             "type": "Full Revision",
                             "reason": "Lantern provided a comprehensive revision of the text.",
                             "status": "pending",
-                            "scope": focus_context.get("mode", "Whole document")
+                            "scope": f_context.get("mode", "Whole Document")
                         }]
                 elif payload["action"] == ActionType.SEGMENT:
                     paras = response.get("paragraphs", [])

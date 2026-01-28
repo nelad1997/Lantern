@@ -99,7 +99,7 @@ def build_prompt(action: ActionType, focus: str, instructions: str = "") -> str:
             "- Ensure each block identifies a DIFFERENT type of issue.\n"
             "- Respond in the same language as the input text.\n"
             "- STRICTLY NO introductory text. Start directly with 'Title:' or 'NO_CRITIQUE_NEEDED'.\n\n"
-            f"Input & Principles:\n{focus}"
+            f"Input & Principles:\n{focus}\n\nSYSTEM CONSTRAINTS:\n{instructions}"
         )
 
     # -------------------------------------------------
