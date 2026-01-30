@@ -586,17 +586,17 @@ def main():
 
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
         with c1:
-            if st.button("🌱 Expand", use_container_width=True):
+            if st.button("🌱 Expand", use_container_width=True, help="Explore alternative reasoning nodes and divergent perspectives based on your focus."):
                 st.session_state.pending_action = {"action": ActionType.DIVERGE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c2:
-            if st.button("⚖️ Critique", use_container_width=True):
+            if st.button("⚖️ Critique", use_container_width=True, help="Analyze your thinking for potential biases, gaps, or logical fallacies."):
                 st.session_state.pending_action = {"action": ActionType.CRITIQUE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c3:
-            if st.button("✨ Refine", use_container_width=True):
+            if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
                 st.session_state.pending_action = {"action": ActionType.REFINE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()

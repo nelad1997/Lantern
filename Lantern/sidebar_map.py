@@ -113,7 +113,7 @@ def render_sidebar_map(tree, show_header: bool = True):
         with st.container(border=True):
             tooltip_text = (
                 "Track your reasoning process with Lantern.&#10;"
-                "🌱 Paths: Explored alternative reasoning lines.&#10;"
+                "🌱 Nodes: Explored alternative reasoning ideas.&#10;"
                 "🛡️ Strength: Counts every time you 'Acknowledge' a critique or select an idea."
             )
             st.markdown(
@@ -122,7 +122,7 @@ def render_sidebar_map(tree, show_header: bool = True):
                 unsafe_allow_html=True
             )
             c_p, c_c = st.columns(2)
-            c_p.caption(f"🌱 Paths: {paths_explored}")
+            c_p.caption(f"🌱 Nodes: {paths_explored}")
             c_c.markdown(f"<span style='font-size:0.8rem;'>🛡️ Strength: {critiques_count}</span>", unsafe_allow_html=True)
 
         st.session_state["show_full_tree"] = False
@@ -161,7 +161,7 @@ def render_sidebar_map(tree, show_header: bool = True):
         for nid in visible_nodes:
             node = tree["nodes"][nid]
             base_label = node.get("metadata", {}).get("label", get_node_short_label(node))
-            if base_label == "Idea": base_label = "New Path"
+            if base_label == "Idea": base_label = "New Node"
             
             if base_label not in label_counts:
                 label_counts[base_label] = 1
@@ -174,14 +174,14 @@ def render_sidebar_map(tree, show_header: bool = True):
              st.session_state.nav_selection_box = visible_nodes[current_index]
 
         st.selectbox(
-            "🎯 Select Path:", 
+            "🎯 Select Node:", 
             options=visible_nodes, 
             format_func=lambda nid: node_id_to_label.get(nid, nid), 
             key="nav_selection_box", 
-            help="Select a path to navigate. Click 'Go' below to confirm."
+            help="Select a node to navigate. Click 'Navigate' below to confirm."
         )
 
-        if st.button("🚀 Navigate", use_container_width=True, help="Switch to the selected reasoning path."):
+        if st.button("🚀 Navigate", use_container_width=True, help="Switch to the selected reasoning node."):
             new_id = st.session_state.get("nav_selection_box")
             if new_id and new_id != tree["current"]:
                 from app import add_debug_log
