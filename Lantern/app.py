@@ -420,13 +420,15 @@ def main():
     if "llm_in_flight" not in st.session_state:
         st.session_state.llm_in_flight = False
     if "tree" not in st.session_state:
-        # Try to load existing session from disk (Stability Fix)
-        loaded_tree = load_tree()
-        if loaded_tree:
-            st.session_state.tree = loaded_tree
-            add_debug_log(f"♻️ Restored session from disk.")
-        else:
-            st.session_state.tree = init_tree("")
+        # EPHEMERAL MODE: Always start fresh on reload (User Request)
+        # We explicitly do NOT load from disk.
+        import uuid
+        # Generate a random ID for this run so saves don't overwrite previous runs (even though we don't reload them)
+        if "stable_session_id" not in st.session_state:
+            st.session_state["stable_session_id"] = str(uuid.uuid4())[:8]
+
+        st.session_state.tree = init_tree("")
+        add_debug_log(f"✨ Started new ephemeral session: {st.session_state['stable_session_id']}")
     
     # DEFENSIVE & MIGRATION: Ensure all tree fields exist
     tree = st.session_state.tree
