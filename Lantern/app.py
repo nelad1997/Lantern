@@ -530,7 +530,25 @@ def main():
         if "comparison_data" in st.session_state:
             st.subheader("⚖️ Branch Comparison")
         else:
-            st.subheader("Editor")
+            c_hdr_1, c_hdr_2 = st.columns([0.9, 0.1])
+            c_hdr_1.subheader("Editor")
+            with c_hdr_2:
+                 if st.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context.", key="reset_all_top"):
+                    # FULL RESET: Wipe everything
+                    st.session_state["editor_html"] = ""
+                    st.session_state.tree = init_tree("")
+                    st.session_state.banned_ideas = []
+                    st.session_state.dismissed_suggestions = set()
+                    st.session_state.bulletproof_history = set()
+                    st.session_state.selected_paths = []
+                    st.session_state.current_critiques = []
+                    st.session_state.pending_refine_edits = []
+                    st.session_state.structural_segments = []
+                    st.session_state.logical_paragraphs = []
+                    st.session_state.focused_text = ""
+                    st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
+                    save_tree(st.session_state.tree)
+                    st.rerun()
 
         if st.session_state.get("ai_info_message"):
             c_msg, c_msg_del = st.columns([0.9, 0.1])
