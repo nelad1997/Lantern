@@ -530,25 +530,7 @@ def main():
         if "comparison_data" in st.session_state:
             st.subheader("⚖️ Branch Comparison")
         else:
-            c_hdr_1, c_hdr_2 = st.columns([0.9, 0.1])
-            c_hdr_1.subheader("Editor")
-            with c_hdr_2:
-                 if st.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context.", key="reset_all_top"):
-                    # FULL RESET: Wipe everything
-                    st.session_state["editor_html"] = ""
-                    st.session_state.tree = init_tree("")
-                    st.session_state.banned_ideas = []
-                    st.session_state.dismissed_suggestions = set()
-                    st.session_state.bulletproof_history = set()
-                    st.session_state.selected_paths = []
-                    st.session_state.current_critiques = []
-                    st.session_state.pending_refine_edits = []
-                    st.session_state.structural_segments = []
-                    st.session_state.logical_paragraphs = []
-                    st.session_state.focused_text = ""
-                    st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
-                    save_tree(st.session_state.tree)
-                    st.rerun()
+            st.subheader("Editor")
 
         if st.session_state.get("ai_info_message"):
             c_msg, c_msg_del = st.columns([0.9, 0.1])
@@ -665,6 +647,26 @@ def main():
             pending_count = len([p for p in st.session_state.pending_refine_edits if p["status"] == "pending"])
             if pending_count > 0:
                 st.warning(f"✨ Reviewing {pending_count} suggested improvements in the sidebar.")
+
+        # --- QUILL EDITOR (With Right-Aligned Trash Icon Above) ---
+        c_ed_1, c_ed_2 = st.columns([0.94, 0.06])
+        with c_ed_2:
+             if st.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context.", key="reset_all_above_editor"):
+                # FULL RESET: Wipe everything
+                st.session_state["editor_html"] = ""
+                st.session_state.tree = init_tree("")
+                st.session_state.banned_ideas = []
+                st.session_state.dismissed_suggestions = set()
+                st.session_state.bulletproof_history = set()
+                st.session_state.selected_paths = []
+                st.session_state.current_critiques = []
+                st.session_state.pending_refine_edits = []
+                st.session_state.structural_segments = []
+                st.session_state.logical_paragraphs = []
+                st.session_state.focused_text = ""
+                st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
+                save_tree(st.session_state.tree)
+                st.rerun()
 
         # --- QUILL EDITOR ---
         quill_value = st.session_state.get("editor_html", "")
