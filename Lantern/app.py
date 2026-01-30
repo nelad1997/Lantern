@@ -851,24 +851,17 @@ def main():
         # Determine default index logic:
         # If we have PENDING edits, default to Refine View (index 1) unless user manually switched.
         # If we just applied a refine, we WANT to stay in Refine View to see others.
-        default_index = 0
         has_pending = st.session_state.get("pending_refine_edits") and any(p["status"] == "pending" for p in st.session_state.pending_refine_edits)
-        
-        if has_pending:
-             default_index = 1
-        
-        # If 'sidebar_view_toggle' isn't in state yet, set it based on logic
         if "sidebar_view_toggle" not in st.session_state:
-             st.session_state.sidebar_view_toggle = ["🗺️ Thought Map", "✨ Refine Review"][default_index]
+             st.session_state.sidebar_view_toggle = "✨ Refine Review" if has_pending else "🗺️ Thought Map"
 
-        # Force view to Refine if we have pending items and just applied one (to prevent flipping back)
+        # Force view to Refine if we just applied a refinement and still have more to review
         if st.session_state.get("just_applied_refine") and has_pending:
-             default_index = 1
+             st.session_state.sidebar_view_toggle = "✨ Refine Review"
 
         sidebar_view = st.radio(
             "View:",
             ["🗺️ Thought Map", "✨ Refine Review"],
-            index=default_index,
             horizontal=True,
             key="sidebar_view_toggle",
             label_visibility="collapsed"
