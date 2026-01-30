@@ -228,8 +228,10 @@ st.markdown("""
 .status-ready { background-color: #f0fdf4; color: #166534; border: 2px solid #bbf7d0; }
 .status-structure { background-color: #ecfeff; color: #0891b2; border: 2px solid #a5f3fc; }
 .status-refining { background-color: #f5f3ff; color: #5b21b6; border: 2px solid #ddd6fe; }
-.status-thinking { background-color: #fff1f2; color: #e11d48; border: 2px solid #fecdd3; animation: pulse-red 2s infinite; }
-@keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+.action-bar.status-explore { background-color: #e0f2fe; border-color: #bae6fd; }
+.action-bar.status-reflect { background-color: #fef3c7; border-color: #fde68a; }
+.action-bar.status-refining { background-color: #f5f3ff; border-color: #ddd6fe; }
+.action-bar.status-structure { background-color: #ecfeff; border-color: #a5f3fc; }
 .action-bar {
     border: 1px solid #e5e7eb;
     border-radius: 14px;
@@ -587,6 +589,7 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
+                st.rerun()
         with c2:
             if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
                 st.session_state.pending_action = {
@@ -594,6 +597,7 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
+                st.rerun()
         with c3:
             if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
                 st.session_state.pending_action = {
@@ -601,6 +605,7 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
+                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
         # --- (3) AI Context & Structure "Folder" ---
@@ -1271,21 +1276,13 @@ def main():
                                         st.session_state.dismissed_suggestions.add(sibling_id)
 
                                 # --- Navigation & State Sync ---
-                                if cid in st.session_state.tree.get("nodes", {}):
-                                    add_debug_log(f"🖱️ SELECT: Navigating to {cid}")
                                     navigate_to_node(st.session_state.tree, cid)
                                     # Use the nearest HTML (which fallback to current_node if already set above)
                                     final_html = get_nearest_html(st.session_state.tree, cid)
                                     st.session_state["editor_html"] = final_html
-                                    add_debug_log(f"🖱️ SELECT: Navigation complete. New draft length: {len(final_html) if final_html else 0}")
-                                else:
-                                    add_debug_log(f"🖱️ SELECT: Node {cid} NOT FOUND in tree!")
-                                    st.error("This suggestion is no longer available.")
-                                
-                                from tree import save_tree
-                                save_tree(st.session_state.tree)
-                                # Rule 8 Exception: Navigation performance override
-                                st.rerun()
+                                    
+                                    # Rule 8 Exception: Navigation performance override
+                                    st.rerun()
                         with c_pin:
                             if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
                                 st.session_state.tree["pinned_items"].append({
@@ -1313,17 +1310,16 @@ def main():
             st.session_state.llm_in_flight = True
             
             try:
-                # We use the target_text and focus_context calculated during rendering
-                # But since we are at bottom, we re-verify or rely on stable state
+                # OPTIMIZATION: Process context only when absolutely necessary
                 current_html = st.session_state.get("editor_html", "")
                 f_mode = st.session_state.get("promo_focus_mode", "Whole Document")
                 paras = st.session_state.get("structural_segments", [])
                 
-                # Dynamic index check
+                # Dynamic index check for handle_event
                 b_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
                 b_idx = b_idx_raw + 1
                 
-                # CRITICAL FIX: Use exactly what was shown in the AI Focus Preview
+                # Use exactly what was shown in the AI Focus Preview
                 t_text = st.session_state.get("focused_text", "")
                 
                 # Fallback only if empty (should not happen if UI rendered correctly)
