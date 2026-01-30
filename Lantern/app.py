@@ -621,6 +621,12 @@ def main():
 
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
+        # --- Refine Progress Indicator (RESTORED) ---
+        if st.session_state.get("pending_refine_edits"):
+            pending_count = len([p for p in st.session_state.pending_refine_edits if p["status"] == "pending"])
+            if pending_count > 0:
+                st.warning(f"✨ Reviewing {pending_count} suggested improvements in the sidebar.")
+
         # --- QUILL EDITOR ---
         quill_value = st.session_state.get("editor_html", "")
         with st.container(height=600):
