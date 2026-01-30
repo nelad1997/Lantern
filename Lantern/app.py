@@ -1297,18 +1297,18 @@ def main():
                                 from tree import save_tree
                                 save_tree(st.session_state.tree)
                                 st.rerun()
-                         with c_pin:
-                             if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
-                                 st.session_state.tree["pinned_items"].append({
-                                     "id": cid, 
-                                     "title": title, 
-                                     "text": explanation, 
-                                     "type": "idea",
-                                     "scope": scope,
-                                     "source_context": "" # OPTIMIZATION: Do not save heavy context
-                                 })
-                                 save_tree(st.session_state.tree)
-                                 st.rerun()
+                        with c_pin:
+                            if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": cid, 
+                                    "title": title, 
+                                    "text": explanation, 
+                                    "type": "idea",
+                                    "scope": scope,
+                                    "source_context": "" # OPTIMIZATION: Do not save heavy context
+                                })
+                                save_tree(st.session_state.tree)
+                                st.rerun()
                         with c_pru:
                             if st.button("🗑", key=f"pr_{cid}", help="Dismiss this suggestion from view", use_container_width=True):
                                 st.session_state.dismissed_suggestions.add(cid)
