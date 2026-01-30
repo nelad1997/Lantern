@@ -572,8 +572,9 @@ def main():
             if not target_text and current_html.strip():
                  target_text = re.sub("<[^<]+?>", "", current_html).strip()
 
+        # Derived focus state for buttons and preview
         st.session_state["focused_text"] = target_text
-        st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {block_idx}"
+        st.session_state["focus_scope_label"] = "Whole Document" if focus_choice == "Whole Document" else f"Paragraph {block_idx}"
 
         st.markdown(
             f'<div class="action-bar {mode_class}" style="display: flex; align-items: center; gap: 8px;">'
@@ -586,24 +587,25 @@ def main():
         c1, c2, c3 = st.columns([1, 1, 1], gap="small")
         with c1:
             if st.button("🌱 Expand", use_container_width=True):
-                st.session_state.pending_action = {"action": ActionType.DIVERGE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.pending_action = {"action": ActionType.DIVERGE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c2:
             if st.button("⚖️ Critique", use_container_width=True):
-                st.session_state.pending_action = {"action": ActionType.CRITIQUE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.pending_action = {"action": ActionType.CRITIQUE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()
         with c3:
             if st.button("✨ Refine", use_container_width=True):
-                st.session_state.pending_action = {"action": ActionType.REFINE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.pending_action = {"action": ActionType.REFINE, "anchor_id": tree["current"], "f_mode": focus_choice, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
                 st.session_state.is_thinking = True
                 st.rerun()
 
         with st.expander("🧠 AI Context & Structure", expanded=False):
             tab1, tab2, tab3 = st.tabs(["🎯 Focus Range", "📑 Segmentation", "👁️ Focus Preview"])
             with tab1:
-                focus_choice = st.radio("Select AI Focus:", ["Whole Document", "Specific Paragraph"], key="promo_focus_mode_radio", horizontal=True)
+                # Use the synced focus_choice for the radio's initial value
+                st.radio("Select AI Focus:", ["Whole Document", "Specific Paragraph"], key="promo_focus_mode_radio", horizontal=True)
                 if focus_choice == "Specific Paragraph" and paragraphs_only:
                     options = [f"[{i+1}] {re.sub('<[^<]+?>', '', p)[:60]}..." for i, p in enumerate(paragraphs_only)]
                     st.radio("Select Paragraph:", options=options, index=max(0, min(st.session_state.get("promo_block_selector_idx", 0), len(options)-1)), key="promo_block_radio_selector")
