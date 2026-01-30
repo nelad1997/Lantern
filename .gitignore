@@ -1,6 +1,11 @@
 .env
+Lantern/.env
 sessions/
+Lantern/sessions/
 __pycache__/
+Lantern/__pycache__/
 .idea/
+Lantern/.idea/
 .python-version
+Lantern/.python-version
 *.pyc
