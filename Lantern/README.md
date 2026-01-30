@@ -1,4 +1,4 @@
-# Lantern 🏮 - AI-Augmented Thinking & Writing
+# Lantern - AI-Augmented Thinking & Writing
 
 <p align="center">
   <img src="logo.jpg" alt="Lantern Logo" width="200"/>
@@ -10,7 +10,7 @@ The system doesn't just "fix" your text; it acts as a **Senior Research Partner*
 
 ---
 
-## 🏗️ What is Lantern?
+## What is Lantern?
 
 Lantern transforms writing from a linear task into a multi-dimensional exploration. It helps you:
 - **🌱 Expand & Explore**: Don't settle for the first draft. Use the "Expand" tool to see different ways a reasoning node could be developed.
