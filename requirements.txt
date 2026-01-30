@@ -1,0 +1,9 @@
+streamlit
+google-generativeai
+python-dotenv
+graphviz
+streamlit-quill
+PyMuPDF
+python-docx
+Pillow
+reportlab

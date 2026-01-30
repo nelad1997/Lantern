@@ -35,7 +35,7 @@ if current_dir not in sys.path:
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
-from tree import init_tree, get_current_node, navigate_to_node, get_node_short_label, get_nearest_html
+from tree import init_tree, get_current_node, navigate_to_node, get_node_short_label, get_nearest_html, load_tree
 from controller import handle_event, generate_diff_html, apply_fuzzy_replacement
 from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
@@ -420,8 +420,13 @@ def main():
     if "llm_in_flight" not in st.session_state:
         st.session_state.llm_in_flight = False
     if "tree" not in st.session_state:
-        # DISABLED: Autosave loading is risky if not actively saving
-        st.session_state.tree = init_tree("")
+        # Try to load existing session from disk (Stability Fix)
+        loaded_tree = load_tree()
+        if loaded_tree:
+            st.session_state.tree = loaded_tree
+            add_debug_log(f"♻️ Restored session from disk.")
+        else:
+            st.session_state.tree = init_tree("")
     
     # DEFENSIVE: Check tree again before accessing nested properties
     tree = st.session_state.get("tree")
