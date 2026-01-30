@@ -1147,28 +1147,28 @@ def main():
                                 st.session_state.bulletproof_history.add(unique_key)
                                 
                                 # Also Pin it
-                                 st.session_state.tree["pinned_items"].append({
-                                     "id": None,
-                                     "title": title,
-                                     "text": text,
-                                     "type": "critique"
-                                 })
-                                 from tree import save_tree
-                                 save_tree(st.session_state.tree)
-                                 st.session_state["current_critiques"].pop(i)
-                                 st.rerun()
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": None,
+                                    "title": title,
+                                    "text": text,
+                                    "type": "critique"
+                                })
+                                from tree import save_tree
+                                save_tree(st.session_state.tree)
+                                st.session_state["current_critiques"].pop(i)
+                                st.rerun()
 
                         with c_pin:
-                             if st.button("📌", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
-                                 st.session_state.tree["pinned_items"].append({
-                                     "id": None,
-                                     "title": title,
-                                     "text": text,
-                                     "type": "critique"
-                                 })
-                                 save_tree(st.session_state.tree)
-                                 # User requested NOT to remove it from list when just pinning
-                                 st.rerun()
+                            if st.button("📌", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
+                                st.session_state.tree["pinned_items"].append({
+                                    "id": None,
+                                    "title": title,
+                                    "text": text,
+                                    "type": "critique"
+                                })
+                                save_tree(st.session_state.tree)
+                                # User requested NOT to remove it from list when just pinning
+                                st.rerun()
 
                         with c_del:
                             if st.button("🗑", key=f"cs_del_{i}", help="Delete this critique", use_container_width=True):
