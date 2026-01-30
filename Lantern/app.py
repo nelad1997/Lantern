@@ -599,7 +599,11 @@ def main():
             if st.button("🌱 Expand", use_container_width=True, help="Explore alternative reasoning paths and divergent perspectives based on your focus."):
                 st.session_state.pending_action = {
                     "action": ActionType.DIVERGE, 
-                    "anchor_id": tree["current"]
+                    "anchor_id": tree["current"],
+                    "f_mode": focus_mode,
+                    "t_text": target_text,
+                    "b_idx": block_idx,
+                    "paras": paragraphs_only
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
@@ -607,7 +611,11 @@ def main():
             if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
                 st.session_state.pending_action = {
                     "action": ActionType.CRITIQUE, 
-                    "anchor_id": tree["current"]
+                    "anchor_id": tree["current"],
+                    "f_mode": focus_mode,
+                    "t_text": target_text,
+                    "b_idx": block_idx,
+                    "paras": paragraphs_only
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
@@ -615,7 +623,11 @@ def main():
             if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
                 st.session_state.pending_action = {
                     "action": ActionType.REFINE, 
-                    "anchor_id": tree["current"]
+                    "anchor_id": tree["current"],
+                    "f_mode": focus_mode,
+                    "t_text": target_text,
+                    "b_idx": block_idx,
+                    "paras": paragraphs_only
                 }
                 st.session_state.is_thinking = True
                 st.rerun()
@@ -1317,19 +1329,16 @@ def main():
             try:
                 # OPTIMIZATION: Process context only when absolutely necessary
                 current_html = st.session_state.get("editor_html", "")
-                f_mode = st.session_state.get("promo_focus_mode", "Whole Document")
-                paras = st.session_state.get("structural_segments", [])
+                # Use values captured at click time to prevent race conditions during rerun
+                f_mode = payload.get("f_mode", st.session_state.get("promo_focus_mode", "Whole Document"))
+                paras = payload.get("paras", st.session_state.get("structural_segments", []))
+                b_idx = payload.get("b_idx", 1)
+                t_text = payload.get("t_text", "")
                 
-                # Dynamic index check for handle_event
-                b_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
-                b_idx = b_idx_raw + 1
-                
-                # Use exactly what was shown in the AI Focus Preview
-                t_text = st.session_state.get("focused_text", "")
-                
-                # Fallback only if empty (should not happen if UI rendered correctly)
+                # Fallback only if payload was somehow incomplete (legacy state)
                 if not t_text:
                     if f_mode == "Specific Paragraph" and paras:
+                        b_idx_raw = payload.get("b_idx_raw", st.session_state.get("promo_block_selector_idx", 0))
                         t_text = paras[max(0, min(b_idx_raw, len(paras)-1))]
                     else:
                         no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)

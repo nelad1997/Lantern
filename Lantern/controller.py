@@ -432,9 +432,15 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     # שליחה ל-LLM
     constraints_str = "\n".join(constraints) if constraints else ""
     
-    # Context Fix: For DIVERGE and CRITIQUE, we want the AI to know the current PERSPECTIVE (base_focus)
-    # For REFINE, we want the specific MARKED paragraphs (final_user_text) for replacement logic.
-    prompt_focus = base_focus if action in [ActionType.DIVERGE, ActionType.CRITIQUE] else final_user_text
+    # FINAL PROMPT CONSTRUCTION:
+    # We use final_user_text which has the correct paragraph markers ([PX]).
+    # We also prepend any node-level perspective context from base_focus if it exists and differs from the user text.
+    if base_focus and base_focus.strip() != user_text.strip():
+        # This adds the "Current Perspective/Idea" context to the prompt
+        prompt_focus = f"{base_focus}\n\nANALYSIS TARGET (DRAFT):\n{final_user_text}"
+    else:
+        prompt_focus = final_user_text
+
     prompt = build_prompt(action, prompt_focus, instructions=constraints_str)
     
     logger.info(f"🧠 CONTROLLER: Calling AI for action={action.name} | Focus={focus_mode}")
