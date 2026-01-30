@@ -1364,6 +1364,11 @@ def main():
                 elif payload["action"] == ActionType.REFINE:
                     if response.get("mode") == "refine_suggestions":
                         st.session_state.pending_refine_edits = response.get("items", [])
+                        if st.session_state.pending_refine_edits:
+                            st.session_state.sidebar_view_toggle = "✨ Refine Review"
+                            st.session_state["ai_info_message"] = f"✨ Lantern found {len(st.session_state.pending_refine_edits)} writing improvements."
+                        else:
+                            st.session_state["ai_info_message"] = "✨ Lantern analyzed your text and found no specific writing improvements."
                     else:
                         st.session_state.pending_refine_edits = [{
                             "id": f"full_refine_{os.urandom(2).hex()}",
@@ -1374,6 +1379,10 @@ def main():
                             "status": "pending",
                             "scope": f_mode
                         }]
+                        st.session_state.sidebar_view_toggle = "✨ Refine Review"
+                        st.session_state["ai_info_message"] = "✨ A full draft revision is available in Refine Review."
+                    
+                    save_tree(st.session_state.tree)
                 elif payload["action"] == ActionType.SEGMENT:
                     # Perform structural analyzer with indicator
                     _, paragraphs = get_document_structure(current_html)
