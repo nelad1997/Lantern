@@ -503,6 +503,18 @@ def main():
 
     if "editor_html" not in st.session_state:
         st.session_state["editor_html"] = get_nearest_html(tree, st.session_state.tree["current"])
+    
+    # --- IMMEDIATE WIDGET SYNC (Fixes AI Focus Mismatch) ---
+    # Sync focus widgets to state BEFORE calculating target_text/preview
+    focus_choice = st.session_state.get("promo_focus_mode_radio", "Whole Document")
+    st.session_state["promo_focus_mode"] = "Whole Document" if focus_choice == "Whole Document" else "Specific Paragraph"
+
+    selection = st.session_state.get("promo_block_radio_selector")
+    if selection:
+        match = re.search(r"(\d+)", selection)
+        if match:
+            st.session_state["promo_block_selector_idx"] = int(match.group(1)) - 1
+            
     mode_label, mode_class = get_ui_state(tree)
 
     col_editor, col_lantern = st.columns([2, 1], gap="large")
@@ -631,10 +643,6 @@ def main():
                     horizontal=True,
                     label_visibility="collapsed"
                 )
-                
-                # Rule 1: All state changes must be explicit. 
-                # We update the internal state based on the widget value without on_change.
-                st.session_state["promo_focus_mode"] = "Whole Document" if focus_choice == "Whole Document" else "Specific Paragraph"
 
                 if focus_choice == "Specific Paragraph":
                     if current_paras:
@@ -660,12 +668,6 @@ def main():
                             key="promo_block_radio_selector",
                             label_visibility="collapsed"
                         )
-                        # Manual sync without on_change
-                        selection = st.session_state.get("promo_block_radio_selector")
-                        if selection:
-                            match = re.search(r"(\d+)", selection)
-                            if match:
-                                st.session_state["promo_block_selector_idx"] = int(match.group(1)) - 1
                     else:
                         st.warning("No paragraphs detected. Type some text first.")
 
@@ -694,8 +696,9 @@ def main():
                 if has_content:
                     st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
                     if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on current changes (excluding title)."):
-                        _, paragraphs = get_document_structure(st.session_state.get("editor_html", ""))
-                        st.session_state.structural_segments = paragraphs
+                        st.session_state.pending_action = {"action": ActionType.SEGMENT}
+                        st.session_state.is_thinking = True
+                        st.rerun()
 
             with tab3:
                 # Sub-section: AI Focus Preview
@@ -1369,6 +1372,11 @@ def main():
                             "status": "pending",
                             "scope": f_mode
                         }]
+                elif payload["action"] == ActionType.SEGMENT:
+                    # Perform structural analyzer with indicator
+                    _, paragraphs = get_document_structure(current_html)
+                    st.session_state.structural_segments = paragraphs
+                    st.session_state["ai_info_message"] = f"📑 Structure updated: {len(paragraphs)} paragraphs identified."
             except Exception as e:
                 st.error(f"❌ Gemini Error: {e}")
             finally:
