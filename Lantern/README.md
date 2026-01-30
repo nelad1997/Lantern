@@ -51,6 +51,9 @@ GEMINI_API_KEY=your_actual_api_key_here
 ```
 *You can get a free API key at [Google AI Studio](https://aistudio.google.com/) (requires a Google Account).*
 
+### 4.1 Model Settings
+By default, Lantern uses `gemini-2.5-pro`. You can change the model (e.g., to `"gemini-2.5-flash"`) by editing [llm_client.py](llm_client.py) at **Line 69**. Ensure the chosen model is compatible with your API key.
+
 ### 5. Run the App
 ```bash
 streamlit run app.py
