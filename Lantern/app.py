@@ -769,7 +769,6 @@ def main():
                         st.session_state.editor_version = 0
                     st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
                     
-                    from tree import save_tree
                     save_tree(st.session_state.tree)
 
                 # Prepend CSS to the value so it renders inside the iframe
@@ -779,7 +778,7 @@ def main():
                     value=quill_value,
                     placeholder="Start drafting...",
                     html=True,
-                    key="editor", # Rule 2: Constant key
+                    key=f"quill_editor_{st.session_state.get('editor_version', 0)}",
                 )
 
                 if html_content is not None:
@@ -882,7 +881,9 @@ def main():
                 c_titles_1, c_titles_2 = st.columns([0.85, 0.15])
                 c_titles_1.markdown("### ✨ Refine Review")
                 if c_titles_2.button("🗑", help="Dismiss all pending suggestions", key="dismiss_all_refine"):
+                    st.session_state.tree["pending_refine_edits"] = []
                     st.session_state.pending_refine_edits = []
+                    save_tree(st.session_state.tree)
                     st.rerun()
                 
                 # Show AI info message if any (e.g. "No improvements found")
@@ -933,6 +934,7 @@ def main():
                                     proposal["status"] = "applied"
                                     st.session_state.editor_version += 1
                                     st.session_state.just_applied_refine = True
+                                    save_tree(st.session_state.tree)
                                     st.toast("✅ Applied suggested improvement!", icon="✨")
                                     st.rerun()
                                 else:
@@ -946,6 +948,7 @@ def main():
                             
                             if c_dis.button("✖ Skip", key=f"dis_refine_{proposal['id']}", use_container_width=True):
                                 proposal["status"] = "dismissed"
+                                save_tree(st.session_state.tree)
                                 st.rerun()
                 
                 # --- After the loop: Completion state ---
@@ -1102,7 +1105,9 @@ def main():
                 c_head, c_clear = st.columns([0.8, 0.2])
                 c_head.subheader("💡 Critical Perspective")
                 if c_clear.button("🗑", key="clear_all_critiques", help="Clear All Critiques", use_container_width=True):
-                    st.session_state["current_critiques"] = []
+                    st.session_state.tree["current_critiques"] = []
+                    st.session_state.current_critiques = []
+                    save_tree(st.session_state.tree)
                     st.rerun()
 
                 for i, item_data in enumerate(list(st.session_state["current_critiques"])):
@@ -1151,7 +1156,6 @@ def main():
                                     "text": text,
                                     "type": "critique"
                                 })
-                                from tree import save_tree
                                 save_tree(st.session_state.tree)
                                 st.session_state["current_critiques"].pop(i)
                                 st.rerun()
@@ -1171,6 +1175,8 @@ def main():
                         with c_del:
                             if st.button("🗑", key=f"cs_del_{i}", help="Delete this critique", use_container_width=True):
                                 st.session_state["current_critiques"].pop(i)
+                                st.session_state.tree["current_critiques"] = st.session_state["current_critiques"]
+                                save_tree(st.session_state.tree)
                                 st.rerun()
                                 
             # 🌿 Suggested Paths
@@ -1341,7 +1347,6 @@ def main():
 
                 logger.info(f"⚡ FINAL EXEC: {payload['action'].name} | Focus={f_mode}")
                 
-                from controller import handle_event
                 response = handle_event(st.session_state.tree, UserEventType.ACTION, {
                     "action": payload["action"],
                     "anchor_id": payload.get("anchor_id"),
@@ -1354,7 +1359,8 @@ def main():
                 })
                 
                 if payload["action"] == ActionType.CRITIQUE:
-                    st.session_state["current_critiques"] = response.get("items", [])
+                    st.session_state.tree["current_critiques"] = response.get("items", [])
+                    st.session_state.current_critiques = st.session_state.tree["current_critiques"]
                     if not st.session_state["current_critiques"]:
                         st.session_state["ai_info_message"] = "🛡️ Lantern analyzed your draft and found it sound."
                 elif payload["action"] == ActionType.DIVERGE:
@@ -1363,14 +1369,14 @@ def main():
                         st.session_state["ai_info_message"] = "🌱 Lantern concludes the current reasoning is comprehensive."
                 elif payload["action"] == ActionType.REFINE:
                     if response.get("mode") == "refine_suggestions":
-                        st.session_state.pending_refine_edits = response.get("items", [])
-                        if st.session_state.pending_refine_edits:
+                        st.session_state.tree["pending_refine_edits"] = response.get("items", [])
+                        if st.session_state.tree["pending_refine_edits"]:
                             st.session_state.sidebar_view_toggle = "✨ Refine Review"
-                            st.session_state["ai_info_message"] = f"✨ Lantern found {len(st.session_state.pending_refine_edits)} writing improvements."
+                            st.session_state["ai_info_message"] = f"✨ Lantern found {len(st.session_state.tree['pending_refine_edits'])} writing improvements."
                         else:
                             st.session_state["ai_info_message"] = "✨ Lantern analyzed your text and found no specific writing improvements."
                     else:
-                        st.session_state.pending_refine_edits = [{
+                        st.session_state.tree["pending_refine_edits"] = [{
                             "id": f"full_refine_{os.urandom(2).hex()}",
                             "original": t_text,
                             "proposed": response.get("refined_text", ""),
@@ -1382,6 +1388,7 @@ def main():
                         st.session_state.sidebar_view_toggle = "✨ Refine Review"
                         st.session_state["ai_info_message"] = "✨ A full draft revision is available in Refine Review."
                     
+                    st.session_state.pending_refine_edits = st.session_state.tree["pending_refine_edits"]
                     save_tree(st.session_state.tree)
                 elif payload["action"] == ActionType.SEGMENT:
                     # Perform structural analyzer with indicator

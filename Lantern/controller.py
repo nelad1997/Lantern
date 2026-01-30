@@ -210,6 +210,9 @@ def apply_fuzzy_replacement(full_html: str, target: str, replacement: str) -> Op
         if c_norm in ['"', '"', '"', '"']: c_norm = '"'
         if c_norm in ["'", "'", "'", "'"]: c_norm = "'"
         
+        # LENIENT: Treat all whitespace as space
+        if c_norm.isspace(): c_norm = ' '
+
         if is_significant(c_norm):
             clean_plain += c_norm
             index_map.append(i)
@@ -223,6 +226,8 @@ def apply_fuzzy_replacement(full_html: str, target: str, replacement: str) -> Op
     for char in clean_target:
         c_norm = char.lower()
         if c_norm in ['–', '—', '\u2013', '\u2014']: c_norm = '-'
+        if c_norm.isspace(): c_norm = ' '
+        
         if is_significant(c_norm):
             target_clean += c_norm
         elif not target_clean or target_clean[-1] != " ":
@@ -571,9 +576,9 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
     if action == ActionType.REFINE:
         suggestions = []
         # Support various field labels (English/Hebrew) and optional para markers
-        # Split into blocks starting with Original: or [P1] Original:
-        # Use lookahead to find next Original block or end of string
-        blocks = re.split(r"(?=\n\s*(?:\[P\d+\][ \t]*)?(?:Original|מקור):)", llm_output.strip())
+        # Improved regex to handle start of string and flexible markers
+        # Using lookahead to find next Original block without consuming it
+        blocks = re.split(r"(?im)^(?=\s*(?:\[P\d+\]\s*)?(?:Original|מקור):)", llm_output.strip())
         
         for i, block in enumerate(blocks):
             if not block.strip(): continue
