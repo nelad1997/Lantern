@@ -1188,11 +1188,11 @@ def main():
             if visible_children:
                 c_head, c_clear = st.columns([0.8, 0.2])
                 c_head.subheader("Suggested Paths")
-                 if c_clear.button("🗑", key="clear_all_suggestions", help="Clear All Suggestions", use_container_width=True):
-                      for child_id in [item["id"] for item in visible_children]:
-                          st.session_state.dismissed_suggestions.add(child_id)
-                      save_tree(st.session_state.tree)
-                      st.rerun()
+                if c_clear.button("🗑", key="clear_all_suggestions", help="Clear All Suggestions", use_container_width=True):
+                    for child_id in [item["id"] for item in visible_children]:
+                        st.session_state.dismissed_suggestions.add(child_id)
+                    save_tree(st.session_state.tree)
+                    st.rerun()
 
                 st.caption("Lantern generated alternative reasoning paths. Select one to continue.")
                 for item in visible_children:
