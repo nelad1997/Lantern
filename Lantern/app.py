@@ -469,6 +469,8 @@ def main():
         st.session_state.promo_focus_mode = "Whole Document"
     if "debug_logs" not in st.session_state:
         st.session_state.debug_logs = []
+    if "editor_version" not in st.session_state:
+        st.session_state.editor_version = 0
 
     # --- CLOUD GUARDRAIL: Session State Integrity ---
     from definitions import IS_CLOUD
@@ -765,9 +767,7 @@ def main():
                     st.session_state.focused_text = ""
                     
                     # Force Quill Re-mount to show empty editor
-                    if "editor_version" not in st.session_state:
-                        st.session_state.editor_version = 0
-                    st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
+                    st.session_state.editor_version += 1
                     
                     save_tree(st.session_state.tree)
 
