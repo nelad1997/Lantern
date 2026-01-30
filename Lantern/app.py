@@ -448,8 +448,6 @@ def main():
 
     if "selected_paths" not in st.session_state:
         st.session_state.selected_paths = []
-    if "editor_version" not in st.session_state:
-        st.session_state.editor_version = 0
     if "knowledge_base" not in st.session_state:
         st.session_state.knowledge_base = {}
     if "pending_refine_edits" not in st.session_state:
@@ -582,7 +580,6 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
-                st.rerun()
         with c2:
             if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
                 st.session_state.pending_action = {
@@ -590,7 +587,6 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
-                st.rerun()
         with c3:
             if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
                 st.session_state.pending_action = {
@@ -598,7 +594,6 @@ def main():
                     "anchor_id": tree["current"]
                 }
                 st.session_state.is_thinking = True
-                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
         # --- (3) AI Context & Structure "Folder" ---
@@ -624,13 +619,12 @@ def main():
                     ["Whole Document", "Specific Paragraph"],
                     key="promo_focus_mode_radio",
                     horizontal=True,
-                    label_visibility="collapsed",
-                    on_change=sync_focus_mode
+                    label_visibility="collapsed"
                 )
                 
-                # Sync immediately on declaration if missing
-                if "promo_focus_mode" not in st.session_state:
-                    sync_focus_mode()
+                # Rule 1: All state changes must be explicit. 
+                # We update the internal state based on the widget value without on_change.
+                st.session_state["promo_focus_mode"] = "Whole Document" if focus_choice == "Whole Document" else "Specific Paragraph"
 
                 if focus_choice == "Specific Paragraph":
                     if current_paras:
@@ -654,11 +648,14 @@ def main():
                             options=options,
                             index=safe_idx,
                             key="promo_block_radio_selector",
-                            label_visibility="collapsed",
-                            on_change=sync_paragraph_selection
+                            label_visibility="collapsed"
                         )
-                        # Execute sync immediately to capture changes
-                        sync_paragraph_selection()
+                        # Manual sync without on_change
+                        selection = st.session_state.get("promo_block_radio_selector")
+                        if selection:
+                            match = re.search(r"(\d+)", selection)
+                            if match:
+                                st.session_state["promo_block_selector_idx"] = int(match.group(1)) - 1
                     else:
                         st.warning("No paragraphs detected. Type some text first.")
 
@@ -689,8 +686,6 @@ def main():
                     if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on current changes (excluding title)."):
                         _, paragraphs = get_document_structure(st.session_state.get("editor_html", ""))
                         st.session_state.structural_segments = paragraphs
-                        st.toast("Updated document structure!")
-                        st.rerun()
 
             with tab3:
                 # Sub-section: AI Focus Preview
@@ -763,9 +758,6 @@ def main():
                     
                     from tree import save_tree
                     save_tree(st.session_state.tree)
-                    
-                    st.toast("Lantern has been reset to its initial state.", icon="🏮")
-                    st.rerun()
 
                 # Prepend CSS to the value so it renders inside the iframe
                 quill_value = EDITOR_CSS + st.session_state["editor_html"]
@@ -774,7 +766,7 @@ def main():
                     value=quill_value,
                     placeholder="Start drafting...",
                     html=True,
-                    key=f"quill_main_{st.session_state.editor_version}",
+                    key="editor", # Rule 2: Constant key
                 )
 
                 if html_content is not None:
@@ -789,16 +781,13 @@ def main():
                     elif clean_html.strip() != current_html_state.strip():
                         # TEXT CHANGE DETECTED
                         st.session_state["editor_html"] = clean_html
-                        current_node.setdefault("metadata", {})["html"] = clean_html
                         
-                        # Calculate plain text for analysis
-                        text_proc = re.sub(r"<(p|div|h[1-6]|li|blockquote)[^>]*>", "", clean_html)
-                        text_proc = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", text_proc).replace("<br>", "\n")
-                        plain_text = re.sub("<[^<]+?>", "", text_proc).strip()
-                        current_node["metadata"]["draft_plain"] = plain_text
-                        # Update paragraphs from current clean_html
-                        doc_title, paragraphs = get_document_structure(clean_html)
-                        st.session_state.structural_segments = paragraphs # Sync for ALL node types
+                        # Rule 6: No implicit saving to tree metadata. 
+                        # Tree is updated ONLY on explicit navigation / action.
+                        
+                        # Update paragraphs from current clean_html for UI only
+                        _, paragraphs = get_document_structure(clean_html)
+                        st.session_state.structural_segments = paragraphs
                         
                         # Update paragraphs from current clean_html
                         doc_title, paragraphs = get_document_structure(clean_html)
@@ -814,13 +803,7 @@ def main():
                                 current_node["metadata"]["label"] = f"[{paragraphs[0][:25]}...]"
                         
                         st.session_state.last_edit_time = time.time()
-                        
-                        # SAVE on every editor change for maximum stability
-                        from tree import save_tree
-                        save_tree(st.session_state.tree)
-                        
-                        # Rerun to update Preview UI at the top
-                        st.rerun()
+
                 
                 # --- Automatic Segmentation Disabled (Fix for Rate Limits) ---
                 # Segmentation now only runs via "Refresh Logical Map" or after explicit AI actions if desired
@@ -1292,13 +1275,8 @@ def main():
                                     add_debug_log(f"🖱️ SELECT: Node {cid} NOT FOUND in tree!")
                                     st.error("This suggestion is no longer available.")
                                 
-                                if "editor_version" not in st.session_state:
-                                    st.session_state.editor_version = 0
-                                st.session_state.editor_version += 1
-                                
                                 from tree import save_tree
                                 save_tree(st.session_state.tree)
-                                st.rerun()
                         with c_pin:
                             if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
                                 st.session_state.tree["pinned_items"].append({
@@ -1307,15 +1285,13 @@ def main():
                                     "text": explanation, 
                                     "type": "idea",
                                     "scope": scope,
-                                    "source_context": "" # OPTIMIZATION: Do not save heavy context
+                                    "source_context": ""
                                 })
                                 save_tree(st.session_state.tree)
-                                st.rerun()
                         with c_pru:
                             if st.button("🗑", key=f"pr_{cid}", help="Dismiss this suggestion from view", use_container_width=True):
                                 st.session_state.dismissed_suggestions.add(cid)
                                 save_tree(st.session_state.tree)
-                                st.rerun()
 
 
     # ==========================================

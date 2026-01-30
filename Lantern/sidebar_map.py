@@ -149,72 +149,6 @@ def render_sidebar_map(tree, show_header: bool = True):
             else:
                 break
 
-        def handle_navigation():
-            # GUARD: Do not navigate automatically if AI is thinking or list is refreshing
-            if st.session_state.get("is_thinking"):
-                return
-                
-            new_id = st.session_state.get("nav_selection_box")
-            if not new_id:
-                return
-
-            # DEFENSIVE: Ensure the target node still exists in the potentially reset session state
-            tree = st.session_state.get("tree")
-            if not tree or new_id not in tree.get("nodes", {}):
-                # Fallback: Reset UI selection to whatever the tree thinks is current
-                if tree and "current" in tree:
-                     st.session_state["nav_selection_box"] = tree["current"]
-                return
-
-            if new_id != tree["current"]:
-                from app import add_debug_log
-                
-                # 1. Capture Current Draft before Leaving
-                old_id = tree["current"]
-                current_draft = st.session_state.get("editor_html", "")
-                if current_draft:
-                    # Sync to the node we ARE CURRENTLY ON before moving
-                    tree["nodes"][old_id].setdefault("metadata", {})["html"] = current_draft
-                    add_debug_log(f"🔄 NAV: Saved {len(current_draft)} chars to old node {old_id}")
-                
-                # 2. Perform Navigation
-                add_debug_log(f"🔄 NAV: Switching from {old_id} to {new_id}")
-                navigate_to_node(tree, new_id)
-                
-                # 3. Resolve Target Content (with robust fallback)
-                target_html = get_nearest_html(tree, new_id)
-                add_debug_log(f"🔄 NAV: Resolved target HTML (success={bool(target_html)})") 
-                
-                # If target has NO saved state (like a new idea), 
-                # we keep the current draft if they are related, but get_nearest_html 
-                # already handles walking up the tree. 
-                st.session_state["editor_html"] = target_html or current_draft
-                
-                # 4. Force Quill Re-mount
-                if "editor_version" not in st.session_state:
-                    st.session_state.editor_version = 0
-                st.session_state.editor_version += 1
-                
-                # Auto-pin
-                target_node = tree["nodes"][new_id]
-                if target_node.get("type") != "root":
-                    meta = target_node.get("metadata", {})
-                    pin_obj = {
-                        "id": new_id, 
-                        "title": meta.get("label", get_node_short_label(target_node)), 
-                        "text": meta.get("explanation", target_node.get("summary", "")), 
-                        "type": "idea",
-                        "scope": meta.get("scope", "Whole Document"),
-                        "source_context": "" # OPTIMIZATION: Do not save heavy context
-                    }
-                    if "pinned_items" in tree:
-                        if not any(isinstance(i, dict) and i.get("id") == new_id for i in tree["pinned_items"]):
-                             tree["pinned_items"].append(pin_obj)
-                             add_debug_log(f"📌 NAV: Auto-pinned node {new_id}")
-
-                add_debug_log(f"🔄 NAV: Complete. New node={new_id}")
-                st.rerun()
-
         try:
             current_index = visible_nodes.index(current_id)
         except:
@@ -237,14 +171,50 @@ def render_sidebar_map(tree, show_header: bool = True):
                 node_id_to_label[nid] = f"{base_label} ({label_counts[base_label]})"
 
         st.selectbox(
-            "🎯 Navigate:", 
+            "🎯 Select Path:", 
             options=visible_nodes, 
             format_func=lambda nid: node_id_to_label.get(nid, nid), 
             index=current_index, 
             key="nav_selection_box", 
-            on_change=handle_navigation,
-            help="Use this box to navigate between different versions and ideas. Selecting a node automatically PINS its full details."
+            help="Select a path to navigate. Click 'Go' below to confirm."
         )
+
+        if st.button("🚀 Navigate", use_container_width=True, help="Switch to the selected reasoning path."):
+            new_id = st.session_state.get("nav_selection_box")
+            if new_id and new_id != tree["current"]:
+                from app import add_debug_log
+                
+                # 1. Capture Current Draft before Leaving
+                old_id = tree["current"]
+                current_draft = st.session_state.get("editor_html", "")
+                if current_draft:
+                    tree["nodes"][old_id].setdefault("metadata", {})["html"] = current_draft
+                
+                # 2. Perform Navigation
+                navigate_to_node(tree, new_id)
+                
+                # 3. Resolve Target Content
+                target_html = get_nearest_html(tree, new_id)
+                st.session_state["editor_html"] = target_html or current_draft
+                
+                # 4. Auto-pin
+                target_node = tree["nodes"][new_id]
+                if target_node.get("type") != "root":
+                    meta = target_node.get("metadata", {})
+                    pin_obj = {
+                        "id": new_id, 
+                        "title": meta.get("label", get_node_short_label(target_node)), 
+                        "text": meta.get("explanation", target_node.get("summary", "")), 
+                        "type": "idea",
+                        "scope": meta.get("scope", "Whole Document"),
+                        "source_context": "" 
+                    }
+                    if "pinned_items" in tree:
+                        if not any(isinstance(i, dict) and i.get("id") == new_id for i in tree["pinned_items"]):
+                             tree["pinned_items"].append(pin_obj)
+                
+                # NO st.rerun() as per Rule 8. Streamlit will rerun naturally because a button was clicked.
+        
 
         # Build graph
         graph = graphviz.Digraph()
