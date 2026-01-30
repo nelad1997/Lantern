@@ -236,7 +236,12 @@ st.markdown("""
     padding: 14px 16px 16px 16px;
     margin-bottom: 16px;
     background-color: #f9fafb;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
 }
+.action-bar.status-explore { background-color: #f0f9ff; border-color: #bae6fd; }
+.action-bar.status-reflect { background-color: #fffbeb; border-color: #fde68a; }
+.action-bar.status-refining { background-color: #f5f3ff; border-color: #ddd6fe; }
+.action-bar.status-structure { background-color: #f0f9ff; border-color: #bae6fd; }
 .action-bar-title {
     font-size: 0.9rem;
     font-weight: 600;
@@ -563,10 +568,12 @@ def main():
         st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {block_idx}"
 
         # Thinking Context Badge
+        thinking_indicator = f'<span style="margin-left: auto; font-size: 0.8rem; font-weight: 600; color: #64748b; animation: pulse 1.5s infinite;">⏳ {mode_label}</span>' if st.session_state.get("is_thinking") else ""
         st.markdown(
-            f'<div class="action-bar" style="display: flex; align-items: center; gap: 8px;">'
+            f'<div class="action-bar {mode_class}" style="display: flex; align-items: center; gap: 8px;">'
             f'<div class="action-bar-title" style="margin-bottom: 0;">AI Reasoning Actions</div>'
             f'<span title="{combined_help_info}" style="cursor: pointer; background-color: #38bdf8; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; line-height: 1;">i</span>'
+            f'{thinking_indicator}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -1277,6 +1284,8 @@ def main():
                                 
                                 from tree import save_tree
                                 save_tree(st.session_state.tree)
+                                # Rule 8 Exception: Navigation performance override
+                                st.rerun()
                         with c_pin:
                             if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
                                 st.session_state.tree["pinned_items"].append({

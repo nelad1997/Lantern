@@ -213,7 +213,8 @@ def render_sidebar_map(tree, show_header: bool = True):
                         if not any(isinstance(i, dict) and i.get("id") == new_id for i in tree["pinned_items"]):
                              tree["pinned_items"].append(pin_obj)
                 
-                # NO st.rerun() as per Rule 8. Streamlit will rerun naturally because a button was clicked.
+                # NO st.rerun() as per Rule 8, EXCEPT for navigation bottlenecks where immediate refresh is required for snappiness.
+                st.rerun()
         
 
         # Build graph
