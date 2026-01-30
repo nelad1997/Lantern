@@ -170,11 +170,13 @@ def render_sidebar_map(tree, show_header: bool = True):
                 label_counts[base_label] += 1
                 node_id_to_label[nid] = f"{base_label} ({label_counts[base_label]})"
 
+        if "nav_selection_box" not in st.session_state or st.session_state.nav_selection_box not in visible_nodes:
+             st.session_state.nav_selection_box = visible_nodes[current_index]
+
         st.selectbox(
             "🎯 Select Path:", 
             options=visible_nodes, 
             format_func=lambda nid: node_id_to_label.get(nid, nid), 
-            index=current_index, 
             key="nav_selection_box", 
             help="Select a path to navigate. Click 'Go' below to confirm."
         )

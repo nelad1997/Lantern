@@ -532,6 +532,60 @@ def main():
         else:
             st.subheader("Editor")
 
+        # --- QUILL EDITOR (Moved to top to fix sync delay) ---
+        # Using columns for right-alignment of the reset button
+        c_hdr_1, c_hdr_2 = st.columns([0.94, 0.06])
+        with c_hdr_2:
+             if st.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context.", key="reset_all_top"):
+                # FULL RESET: Wipe everything
+                st.session_state["editor_html"] = ""
+                st.session_state.tree = init_tree("")
+                st.session_state.banned_ideas = []
+                st.session_state.dismissed_suggestions = set()
+                st.session_state.bulletproof_history = set()
+                st.session_state.selected_paths = []
+                st.session_state.current_critiques = []
+                st.session_state.pending_refine_edits = []
+                st.session_state.structural_segments = []
+                st.session_state.logical_paragraphs = []
+                st.session_state.focused_text = ""
+                st.session_state.editor_version += 1
+                save_tree(st.session_state.tree)
+                st.rerun()
+
+        quill_value = st.session_state.get("editor_html", "")
+        with st.container(height=600):
+            html_content = st_quill(
+                value=quill_value,
+                placeholder="Start drafting...",
+                html=True,
+                key=f"quill_editor_{st.session_state.get('editor_version', 0)}",
+            )
+            if html_content is not None:
+                # Robust Clean: Remove any <style> blocks
+                clean_html = re.sub(r"<style.*?>.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
+                current_html_state = st.session_state.get("editor_html", "")
+
+                if st.session_state.get("just_applied_refine"):
+                    st.session_state.just_applied_refine = False
+                    add_debug_log("✍️ IGNORED stale editor update after Refine Apply.")
+                elif clean_html != current_html_state:
+                    st.session_state["editor_html"] = clean_html
+                    if current_node.get("id") in st.session_state.tree["nodes"]:
+                         st.session_state.tree["nodes"][current_node["id"]].setdefault("metadata", {})["html"] = clean_html
+                    
+                    doc_title, paragraphs = get_document_structure(clean_html)
+                    st.session_state.structural_segments = paragraphs
+                    
+                    if current_node.get("type") == "root":
+                        if doc_title:
+                            title_topic = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", doc_title, flags=re.IGNORECASE).strip()
+                            if len(title_topic) > 60: title_topic = title_topic[:57] + "..."
+                            current_node["metadata"]["label"] = f"[{title_topic}]"
+                        elif paragraphs:
+                            current_node["metadata"]["label"] = f"[{paragraphs[0][:25]}...]"
+                    st.session_state.last_edit_time = time.time()
+
         if "comparison_data" in st.session_state:
             comp = st.session_state.comparison_data
             diff_html = generate_diff_html(comp['a']['summary'], comp['b']['summary'])
@@ -740,97 +794,6 @@ def main():
                 st.rerun()
 
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
-        EDITOR_CSS = "<style>.ql-editor { font-size: 18px !important; line-height: 1.6; }</style>"
-
-        html_content = st.session_state["editor_html"]
-        
-        # --- NEW: Granular Refine Progress Bar ---
-        if st.session_state.get("pending_refine_edits"):
-            pending_count = len([p for p in st.session_state.pending_refine_edits if p["status"] == "pending"])
-            if pending_count > 0:
-                st.warning(f"✨ Reviewing {pending_count} suggested improvements in the sidebar.")
-        
-        if True: # Editor is now always visible
-            # שינוי: עטיפת ה-Editor במיכל עם גובה קבוע המאפשר גלילה (ללא border כדי למנוע שגיאות גרסה)
-            with st.container(height=600):
-                # Small Floating Clear Button inside container
-                st.markdown(
-                    """
-                    <div style="position: relative; height: 0; z-index: 1000; text-align: right; top: 10px; right: 10px; pointer-events: none;">
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-                
-                # Use columns for right-alignment of the button
-                c_btn_1, c_btn_2 = st.columns([0.94, 0.06])
-                if c_btn_2.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context."):
-                    # FULL RESET: Wipe everything
-                    st.session_state["editor_html"] = ""
-                    st.session_state.tree = init_tree("")
-                    
-                    # Wiping session state context
-                    st.session_state.banned_ideas = []
-                    st.session_state.dismissed_suggestions = set()
-                    st.session_state.bulletproof_history = set()
-                    st.session_state.selected_paths = []
-                    st.session_state.current_critiques = []
-                    st.session_state.pending_refine_edits = []
-                    st.session_state.structural_segments = []
-                    st.session_state.logical_paragraphs = []
-                    st.session_state.focused_text = ""
-                    
-                    # Force Quill Re-mount to show empty editor
-                    st.session_state.editor_version += 1
-                    
-                    save_tree(st.session_state.tree)
-
-                # Use raw editor html directly (Styles are handled in the global CSS block)
-                quill_value = st.session_state["editor_html"]
-                
-                html_content = st_quill(
-                    value=quill_value,
-                    placeholder="Start drafting...",
-                    html=True,
-                    key=f"quill_editor_{st.session_state.get('editor_version', 0)}",
-                )
-                if html_content is not None:
-                    # Robust Clean: Remove any <style> blocks (though we removed prefixing, Quill might add its own)
-                    clean_html = re.sub(r"<style.*?>.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
-                    current_html_state = st.session_state.get("editor_html", "")
-
-                    # Version-locked Sync Guard:
-                    # If we just applied a refinement, we ignore the FIRST update from the editor
-                    # because Streamlit components often return stale content on the first rerun.
-                    if st.session_state.get("just_applied_refine"):
-                        st.session_state.just_applied_refine = False
-                        add_debug_log("✍️ IGNORED stale editor update after Refine Apply.")
-                    elif clean_html != current_html_state:
-                        # TEXT CHANGE DETECTED (User most likely typed)
-                        st.session_state["editor_html"] = clean_html
-                        # Reset the tree-cached HTML so next nav/action picks up latest
-                        if current_node.get("id") in st.session_state.tree["nodes"]:
-                             st.session_state.tree["nodes"][current_node["id"]].setdefault("metadata", {})["html"] = clean_html
-                        
-                        # Consolidated Structural Sync:
-                        # Update paragraphs from current clean_html for UI only
-                        doc_title, paragraphs = get_document_structure(clean_html)
-                        st.session_state.structural_segments = paragraphs
-                        
-                        # Update Root Label if this is the root node
-                        if current_node.get("type") == "root":
-                            if doc_title:
-                                title_topic = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", doc_title, flags=re.IGNORECASE).strip()
-                                if len(title_topic) > 60: title_topic = title_topic[:57] + "..."
-                                current_node["metadata"]["label"] = f"[{title_topic}]"
-                            elif paragraphs:
-                                current_node["metadata"]["label"] = f"[{paragraphs[0][:25]}...]"
-                        
-                        st.session_state.last_edit_time = time.time()
-
-                
-                # --- Automatic Segmentation Disabled (Fix for Rate Limits) ---
-                # Segmentation now only runs via "Refresh Logical Map" or after explicit AI actions if desired
-                pass
 
 
 
