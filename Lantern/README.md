@@ -45,7 +45,7 @@ pip install -r requirements.txt
 ```
 
 ### 4. Configuration
-Create a `.env` file in the `Lantern/` folder and paste your Gemini API Key:
+Open the `.env` file in the `Lantern/` folder and paste your Gemini API Key:
 ```env
 GEMINI_API_KEY=your_actual_api_key_here
 ```
