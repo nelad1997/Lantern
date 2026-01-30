@@ -1,4 +1,3 @@
-
 import uuid
 import datetime
 import os
@@ -8,8 +7,6 @@ import logging
 import streamlit as st
 
 # Ensure sessions directory exists
-# Ensure sessions directory exists
-# Use absolute path relative to this script to ensure consistency regardless of CWD
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 if not os.path.exists(SESSIONS_DIR):
@@ -25,27 +22,39 @@ def get_session_id():
     return st.session_state.stable_session_id
 
 def save_tree(tree):
-    """Saves the tree to disk safely."""
+    """Saves the tree to disk safely with all persistent state."""
     try:
         sid = get_session_id()
         filename = f"tree_{sid}.json"
         filepath = os.path.join(SESSIONS_DIR, filename)
         
-        # Save only serializable data
+        # Consistent payload with ALL persistent state
         data = {
             "nodes": tree["nodes"],
             "current": tree["current"],
             "pinned_items": tree.get("pinned_items", []),
+            "banned_ideas": tree.get("banned_ideas", []),
+            "dismissed_suggestions": list(tree.get("dismissed_suggestions", [])),
+            "bulletproof_history": list(tree.get("bulletproof_history", [])),
+            "current_critiques": tree.get("current_critiques", []),
+            "pending_refine_edits": tree.get("pending_refine_edits", []),
             "timestamp": str(datetime.datetime.now())
         }
         
-        with tempfile.NamedTemporaryFile("w", delete=False, dir=SESSIONS_DIR, encoding="utf-8") as tmp:
-            json.dump(data, tmp, indent=2)
-            temp_name = tmp.name
+        # Write to temp file
+        fd, tmp_path = tempfile.mkstemp(dir=SESSIONS_DIR, suffix=".tmp", text=True)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as tmp:
+                json.dump(data, tmp, indent=2)
             
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        os.rename(temp_name, filepath)
+            # Atomic replace (robust on Windows for existing files)
+            os.replace(tmp_path, filepath)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except: pass
+            raise e
+            
     except Exception as e:
         logger.error(f"❌ Save Failed: {e}")
 
@@ -66,7 +75,6 @@ def load_tree():
             logger.error(f"❌ Corrupt session file {filename}: {e}")
 
     # 2. Sticky Recovery: If current ID has no file, find the most recent session
-    # This saves the user if session_state was wiped but disk is intact.
     try:
         import glob
         pattern = os.path.join(SESSIONS_DIR, "tree_*.json")
@@ -95,15 +103,20 @@ def load_tree():
     return None
 
 def _parse_tree_data(data):
-    """Helper to ensure consistent data structure."""
+    """Helper to ensure consistent data structure with all fields."""
     return {
         "nodes": data["nodes"],
         "current": data["current"],
-        "pinned_items": data.get("pinned_items", [])
+        "pinned_items": data.get("pinned_items", []),
+        "banned_ideas": data.get("banned_ideas", []),
+        "dismissed_suggestions": set(data.get("dismissed_suggestions", [])),
+        "bulletproof_history": set(data.get("bulletproof_history", [])),
+        "current_critiques": data.get("current_critiques", []),
+        "pending_refine_edits": data.get("pending_refine_edits", [])
     }
 
 def init_tree(initial_question):
-    """Initializes the tree structure."""
+    """Initializes the tree structure with all state fields."""
     root_id = str(uuid.uuid4())
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {
@@ -115,11 +128,16 @@ def init_tree(initial_question):
                 "summary": initial_question if initial_question else "[Main Topic]",
                 "type": "root",
                 "created_at": timestamp,
-                "metadata": {}  # For storing full HTML, critiques, etc.
+                "metadata": {} 
             }
         },
         "current": root_id,
-        "pinned_items": [] # List of {"id": str, "text": str} or str
+        "pinned_items": [],
+        "banned_ideas": [],
+        "dismissed_suggestions": set(),
+        "bulletproof_history": set(),
+        "current_critiques": [],
+        "pending_refine_edits": []
     }
 
 def add_child(tree, parent_id, summary, node_type="standard", metadata=None):
@@ -158,16 +176,12 @@ def get_current_node(tree):
 
 def navigate_to_node(tree, node_id):
     """Updates the current node pointer with defensive logging."""
-    # CLOUD GUARDRAIL: Strict Check
-    # Prevents navigation if state is inconsistent (common in Streamlit Cloud reruns)
     from definitions import IS_CLOUD
     if IS_CLOUD:
         if node_id not in tree.get("nodes", {}):
             import logging
             logger = logging.getLogger(__name__)
-            # In Cloud, we fallback to root or throw explicit error to prevent crash loop
             logger.critical(f"☁️ CLOUD UNSAFE NAV: Target {node_id} missing. Reverting to root.")
-            # Fallback to current or root if possible, or just don't move pointer
             return
 
     if node_id in tree.get("nodes", {}):
@@ -208,25 +222,21 @@ def get_node_short_label(node):
     if not node:
         return "[Unknown]"
 
-    # 1. Metadata Label
     if "label" in node.get("metadata", {}):
         return node["metadata"]["label"]
 
     summary = node.get("summary", "")
     if not summary:
-        # Check if there is title in metadata
         if node.get("type") == "root":
              return "[Main Topic]"
         return "[Empty Idea]"
 
-    # 2. Extract explicit Title:
     if "Title:" in summary:
         try:
             return summary.split("Title:")[1].split("\n")[0].strip(" *")
         except:
             pass
 
-    # 3. HTML Header Extraction
     html = node.get("metadata", {}).get("html", "")
     if html:
         import re
@@ -234,8 +244,6 @@ def get_node_short_label(node):
         if headers:
             return headers[0].strip()
 
-    # 4. Fallback: Truncate Summary
-    # Take first sentence or first 50 chars
     first_line = summary.split("\n")[0].strip()
     if len(first_line) > 50:
         return first_line[:47] + "..."

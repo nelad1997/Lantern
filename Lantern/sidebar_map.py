@@ -356,6 +356,9 @@ def render_sidebar_map(tree, show_header: bool = True):
             st.session_state.last_edit_time = 0
             st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
             
+            from tree import save_tree
+            save_tree(st.session_state.tree)
+            
             st.toast("Thought tree has been reset. Your draft is preserved.", icon="🌳")
             st.rerun()
 

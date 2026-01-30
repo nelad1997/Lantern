@@ -428,12 +428,22 @@ def main():
         else:
             st.session_state.tree = init_tree("")
     
-    # DEFENSIVE: Check tree again before accessing nested properties
-    tree = st.session_state.get("tree")
-    if tree and "pinned_items" not in tree:
-        tree["pinned_items"] = []
-    if "banned_ideas" not in st.session_state:
-        st.session_state.banned_ideas = []
+    # DEFENSIVE & MIGRATION: Ensure all tree fields exist
+    tree = st.session_state.tree
+    if "pinned_items" not in tree: tree["pinned_items"] = []
+    if "banned_ideas" not in tree: tree["banned_ideas"] = []
+    if "dismissed_suggestions" not in tree: tree["dismissed_suggestions"] = set()
+    if "bulletproof_history" not in tree: tree["bulletproof_history"] = set()
+    if "current_critiques" not in tree: tree["current_critiques"] = []
+    if "pending_refine_edits" not in tree: tree["pending_refine_edits"] = []
+
+    # UI Backwards Compatibility (aliasing for readability in existing code)
+    st.session_state.banned_ideas = tree["banned_ideas"]
+    st.session_state.dismissed_suggestions = tree["dismissed_suggestions"]
+    st.session_state.bulletproof_history = tree["bulletproof_history"]
+    st.session_state.current_critiques = tree["current_critiques"]
+    st.session_state.pending_refine_edits = tree["pending_refine_edits"]
+
     if "selected_paths" not in st.session_state:
         st.session_state.selected_paths = []
     if "editor_version" not in st.session_state:
@@ -747,30 +757,12 @@ def main():
                     # Force Quill Re-mount to show empty editor
                     if "editor_version" not in st.session_state:
                         st.session_state.editor_version = 0
-                    st.session_state.editor_version += 1
+                    st.session_state.editor_version = st.session_state.get("editor_version", 0) + 1
                     
-                    st.rerun()
-                    st.session_state.focused_text = ""
-                    st.session_state.promo_block_selector_idx = 0
-                    if "promo_block_radio_selector" in st.session_state:
-                        del st.session_state["promo_block_radio_selector"]
-                    st.session_state.promo_focus_mode = "Whole Document"
-                    if "promo_focus_mode_radio" in st.session_state:
-                        del st.session_state["promo_focus_mode_radio"]
-                    if "last_imported_doc" in st.session_state:
-                        del st.session_state["last_imported_doc"]
-                    
-                    # Reset UI/Meta state
-                    st.session_state.root_topic_resolved = False
-                    st.session_state.last_edit_time = 0
-                    st.session_state.editor_version += 1
-                    
-                    if os.path.exists("lantern_autosave.json"):
-                        try: os.remove("lantern_autosave.json")
-                        except: pass
+                    from tree import save_tree
+                    save_tree(st.session_state.tree)
                     
                     st.toast("Lantern has been reset to its initial state.", icon="🏮")
-                    st.rerun()
                     st.rerun()
 
                 # Prepend CSS to the value so it renders inside the iframe
@@ -820,6 +812,10 @@ def main():
                                 current_node["metadata"]["label"] = f"[{paragraphs[0][:25]}...]"
                         
                         st.session_state.last_edit_time = time.time()
+                        
+                        # SAVE on every editor change for maximum stability
+                        from tree import save_tree
+                        save_tree(st.session_state.tree)
                         
                         # Rerun to update Preview UI at the top
                         st.rerun()
@@ -1156,25 +1152,28 @@ def main():
                                 st.session_state.bulletproof_history.add(unique_key)
                                 
                                 # Also Pin it
-                                st.session_state.tree["pinned_items"].append({
-                                    "id": None,
-                                    "title": title,
-                                    "text": text,
-                                    "type": "critique"
-                                })
-                                st.session_state["current_critiques"].pop(i)
-                                st.rerun()
+                                 st.session_state.tree["pinned_items"].append({
+                                     "id": None,
+                                     "title": title,
+                                     "text": text,
+                                     "type": "critique"
+                                 })
+                                 from tree import save_tree
+                                 save_tree(st.session_state.tree)
+                                 st.session_state["current_critiques"].pop(i)
+                                 st.rerun()
 
                         with c_pin:
-                            if st.button("📌", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
-                                st.session_state.tree["pinned_items"].append({
-                                    "id": None,
-                                    "title": title,
-                                    "text": text,
-                                    "type": "critique"
-                                })
-                                # User requested NOT to remove it from list when just pinning
-                                st.rerun()
+                             if st.button("📌", key=f"cs_pin_{i}", help="Pin to context without counting as strengthened", use_container_width=True):
+                                 st.session_state.tree["pinned_items"].append({
+                                     "id": None,
+                                     "title": title,
+                                     "text": text,
+                                     "type": "critique"
+                                 })
+                                 save_tree(st.session_state.tree)
+                                 # User requested NOT to remove it from list when just pinning
+                                 st.rerun()
 
                         with c_del:
                             if st.button("🗑", key=f"cs_del_{i}", help="Delete this critique", use_container_width=True):
@@ -1194,10 +1193,11 @@ def main():
             if visible_children:
                 c_head, c_clear = st.columns([0.8, 0.2])
                 c_head.subheader("Suggested Paths")
-                if c_clear.button("🗑", key="clear_all_suggestions", help="Clear All Suggestions", use_container_width=True):
-                     for child_id in [item["id"] for item in visible_children]:
-                         st.session_state.dismissed_suggestions.add(child_id)
-                     st.rerun()
+                 if c_clear.button("🗑", key="clear_all_suggestions", help="Clear All Suggestions", use_container_width=True):
+                      for child_id in [item["id"] for item in visible_children]:
+                          st.session_state.dismissed_suggestions.add(child_id)
+                      save_tree(st.session_state.tree)
+                      st.rerun()
 
                 st.caption("Lantern generated alternative reasoning paths. Select one to continue.")
                 for item in visible_children:
@@ -1299,21 +1299,25 @@ def main():
                                     st.session_state.editor_version = 0
                                 st.session_state.editor_version += 1
                                 
+                                from tree import save_tree
+                                save_tree(st.session_state.tree)
                                 st.rerun()
-                        with c_pin:
-                            if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
-                                st.session_state.tree["pinned_items"].append({
-                                    "id": cid, 
-                                    "title": title, 
-                                    "text": explanation, 
-                                    "type": "idea",
-                                    "scope": scope,
-                                    "source_context": meta.get("source_context", "")
-                                })
-                                st.rerun()
+                         with c_pin:
+                             if st.button("📌", key=f"p_{cid}", help="Pin this suggestion to the sidebar for future reference", use_container_width=True):
+                                 st.session_state.tree["pinned_items"].append({
+                                     "id": cid, 
+                                     "title": title, 
+                                     "text": explanation, 
+                                     "type": "idea",
+                                     "scope": scope,
+                                     "source_context": meta.get("source_context", "")
+                                 })
+                                 save_tree(st.session_state.tree)
+                                 st.rerun()
                         with c_pru:
                             if st.button("🗑", key=f"pr_{cid}", help="Dismiss this suggestion from view", use_container_width=True):
                                 st.session_state.dismissed_suggestions.add(cid)
+                                save_tree(st.session_state.tree)
                                 st.rerun()
 
 
