@@ -435,6 +435,7 @@ def main():
             st.session_state["stable_session_id"] = str(uuid.uuid4())[:8]
 
         st.session_state.tree = init_tree("")
+        st.session_state["editor_html"] = ""
         add_debug_log(f"✨ Started new ephemeral session: {st.session_state['stable_session_id']}")
     
     # DEFENSIVE & MIGRATION: Ensure all tree fields exist
@@ -791,23 +792,17 @@ def main():
                     if st.session_state.get("just_applied_refine"):
                         st.session_state.just_applied_refine = False
                         add_debug_log("✍️ IGNORED stale editor update after Refine Apply.")
-                    elif clean_html.strip() != current_html_state.strip():
+                    elif clean_html != current_html_state:
                         # TEXT CHANGE DETECTED (User most likely typed)
                         st.session_state["editor_html"] = clean_html
                         # Reset the tree-cached HTML so next nav/action picks up latest
                         if current_node.get("id") in st.session_state.tree["nodes"]:
                              st.session_state.tree["nodes"][current_node["id"]].setdefault("metadata", {})["html"] = clean_html
                         
-                        # Rule 6: No implicit saving to tree metadata. 
-                        # Tree is updated ONLY on explicit navigation / action.
-                        
+                        # Consolidated Structural Sync:
                         # Update paragraphs from current clean_html for UI only
-                        _, paragraphs = get_document_structure(clean_html)
-                        st.session_state.structural_segments = paragraphs
-                        
-                        # Update paragraphs from current clean_html
                         doc_title, paragraphs = get_document_structure(clean_html)
-                        st.session_state.structural_segments = paragraphs # Sync for ALL node types
+                        st.session_state.structural_segments = paragraphs
                         
                         # Update Root Label if this is the root node
                         if current_node.get("type") == "root":
