@@ -532,27 +532,94 @@ def main():
         else:
             st.subheader("Editor")
 
-        # --- QUILL EDITOR (Moved to top to fix sync delay) ---
-        # Using columns for right-alignment of the reset button
-        c_hdr_1, c_hdr_2 = st.columns([0.94, 0.06])
-        with c_hdr_2:
-             if st.button("🗑", help="Reset All: Clears the editor and resets the entire Thought Tree and AI context.", key="reset_all_top"):
-                # FULL RESET: Wipe everything
-                st.session_state["editor_html"] = ""
-                st.session_state.tree = init_tree("")
-                st.session_state.banned_ideas = []
-                st.session_state.dismissed_suggestions = set()
-                st.session_state.bulletproof_history = set()
-                st.session_state.selected_paths = []
-                st.session_state.current_critiques = []
-                st.session_state.pending_refine_edits = []
-                st.session_state.structural_segments = []
-                st.session_state.logical_paragraphs = []
-                st.session_state.focused_text = ""
-                st.session_state.editor_version += 1
-                save_tree(st.session_state.tree)
+        if st.session_state.get("ai_info_message"):
+            c_msg, c_msg_del = st.columns([0.9, 0.1])
+            c_msg.info(st.session_state["ai_info_message"])
+            if c_msg_del.button("✖", key="clear_ai_info", help="Clear this message"):
+                st.session_state["ai_info_message"] = None
                 st.rerun()
 
+        # --- AI ACTION BAR + CONTEXT (RESTORED TO TOP) ---
+        combined_help_info = (
+            "🤖 AI Actions Guide:&#10;&#10;"
+            "• Expand: Generates 3 academic perspectives to grow your ideas.&#10;"
+            "• Critique: Analyzes for logical gaps or ethical issues.&#10;"
+            "• Refine: Suggests writing improvements.&#10;&#10;"
+            "⚙️ Focus Settings:&#10;&#10;"
+            "Choose between 'Whole Document' or 'Specific Paragraph' for AI focus.&#10;&#10;"
+            "⚠️ IMPORTANT: If you make significant changes to your draft, please go to 'Paragraph Segmentation' below and click 'Refresh' to ensure the AI's focus remains accurate."
+        )
+
+        paragraphs_only = st.session_state.get("structural_segments", [])
+        focus_mode = st.session_state.get("promo_focus_mode", "Whole Document")
+
+        # Target text calculation for AI context
+        target_text = ""
+        block_idx = 1
+        
+        if focus_mode == "Specific Paragraph" and paragraphs_only:
+            block_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
+            block_idx_raw = max(0, min(block_idx_raw, len(paragraphs_only) - 1))
+            block_idx = block_idx_raw + 1
+            target_text = paragraphs_only[block_idx_raw]
+        else:
+            current_html = st.session_state.get("editor_html", "")
+            no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)
+            txt_s = re.sub(r"<(p|div|h[1-6]|li|blockquote|br)[^>]*>", "\n", no_css)
+            txt_s = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", txt_s)
+            target_text = re.sub("<[^<]+?>", "", txt_s).replace("&nbsp;", " ").strip()
+            target_text = re.sub(r"\n{3,}", "\n\n", target_text)
+            if not target_text and current_html.strip():
+                 target_text = re.sub("<[^<]+?>", "", current_html).strip()
+
+        st.session_state["focused_text"] = target_text
+        st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {block_idx}"
+
+        st.markdown(
+            f'<div class="action-bar {mode_class}" style="display: flex; align-items: center; gap: 8px;">'
+            f'<div class="action-bar-title" style="margin-bottom: 0;">AI Reasoning Actions</div>'
+            f'<span title="{combined_help_info}" style="cursor: pointer; background-color: #38bdf8; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; line-height: 1;">i</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        c1, c2, c3 = st.columns([1, 1, 1], gap="small")
+        with c1:
+            if st.button("🌱 Expand", use_container_width=True):
+                st.session_state.pending_action = {"action": ActionType.DIVERGE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.is_thinking = True
+                st.rerun()
+        with c2:
+            if st.button("⚖️ Critique", use_container_width=True):
+                st.session_state.pending_action = {"action": ActionType.CRITIQUE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.is_thinking = True
+                st.rerun()
+        with c3:
+            if st.button("✨ Refine", use_container_width=True):
+                st.session_state.pending_action = {"action": ActionType.REFINE, "anchor_id": tree["current"], "f_mode": focus_mode, "t_text": target_text, "b_idx": block_idx, "paras": paragraphs_only}
+                st.session_state.is_thinking = True
+                st.rerun()
+
+        with st.expander("🧠 AI Context & Structure", expanded=False):
+            tab1, tab2, tab3 = st.tabs(["🎯 Focus Range", "📑 Segmentation", "👁️ Focus Preview"])
+            with tab1:
+                focus_choice = st.radio("Select AI Focus:", ["Whole Document", "Specific Paragraph"], key="promo_focus_mode_radio", horizontal=True)
+                if focus_choice == "Specific Paragraph" and paragraphs_only:
+                    options = [f"[{i+1}] {re.sub('<[^<]+?>', '', p)[:60]}..." for i, p in enumerate(paragraphs_only)]
+                    st.radio("Select Paragraph:", options=options, index=max(0, min(st.session_state.get("promo_block_selector_idx", 0), len(options)-1)), key="promo_block_radio_selector")
+            with tab2:
+                for i, p in enumerate(paragraphs_only):
+                    st.markdown(f"**[P{i+1}]** {re.sub('<[^<]+?>', '', p)[:120]}...")
+                if st.button("🔄 Refresh Structure", use_container_width=True):
+                    st.session_state.pending_action = {"action": ActionType.SEGMENT}
+                    st.session_state.is_thinking = True
+                    st.rerun()
+            with tab3:
+                st.text_area("Preview:", value=target_text, height=200, disabled=True)
+
+        st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
+
+        # --- QUILL EDITOR ---
         quill_value = st.session_state.get("editor_html", "")
         with st.container(height=600):
             html_content = st_quill(
@@ -585,215 +652,6 @@ def main():
                         elif paragraphs:
                             current_node["metadata"]["label"] = f"[{paragraphs[0][:25]}...]"
                     st.session_state.last_edit_time = time.time()
-
-        if "comparison_data" in st.session_state:
-            comp = st.session_state.comparison_data
-            diff_html = generate_diff_html(comp['a']['summary'], comp['b']['summary'])
-            st.markdown(
-                f'<div style="background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; line-height: 1.6;">{diff_html}</div>',
-                unsafe_allow_html=True)
-
-        # Logic moved above buttons, UI moved below
-        combined_help_info = (
-            "🤖 AI Actions Guide:&#10;&#10;"
-            "• Expand: Generates 3 academic perspectives to grow your ideas.&#10;"
-            "• Critique: Analyzes for logical gaps or ethical issues.&#10;"
-            "• Refine: Suggests writing improvements.&#10;&#10;"
-            "⚙️ Focus Settings:&#10;&#10;"
-            "Choose between 'Whole Document' or 'Specific Paragraph' for AI focus.&#10;&#10;"
-            "⚠️ IMPORTANT: If you make significant changes to your draft, please go to 'Paragraph Segmentation' below and click 'Refresh' to ensure the AI's focus remains accurate."
-        )
-
-        paragraphs_only = st.session_state.get("structural_segments", [])
-        focus_mode = st.session_state.get("promo_focus_mode", "Whole Document")
-
-        # Target text calculation for AI context
-        target_text = ""
-        block_idx = 1
-        
-        if focus_mode == "Specific Paragraph" and paragraphs_only:
-            # Consistent index reading from synchronized state
-            block_idx_raw = st.session_state.get("promo_block_selector_idx", 0)
-            # Bounds check
-            block_idx_raw = max(0, min(block_idx_raw, len(paragraphs_only) - 1))
-            block_idx = block_idx_raw + 1
-            target_text = paragraphs_only[block_idx_raw]
-        else:
-            # Robust Full Doc Extraction
-            current_html = st.session_state.get("editor_html", "")
-            # 1. Remove styles
-            no_css = re.sub(r"<style.*?>.*?</style>", "", current_html, flags=re.DOTALL | re.IGNORECASE)
-            # 2. Add newlines for block tags to preserve structure
-            txt_s = re.sub(r"<(p|div|h[1-6]|li|blockquote|br)[^>]*>", "\n", no_css)
-            txt_s = re.sub(r"</(p|div|h[1-6]|li|blockquote)>", "\n", txt_s)
-            # 3. Strip all other tags and entities
-            target_text = re.sub("<[^<]+?>", "", txt_s).replace("&nbsp;", " ").strip()
-            # 4. Collapse extra newlines
-            target_text = re.sub(r"\n{3,}", "\n\n", target_text)
-            
-            # Absolute fallback: If empty but HTML isn't, just strip everything
-            if not target_text and current_html.strip():
-                 target_text = re.sub("<[^<]+?>", "", current_html).strip()
-
-        st.session_state["focused_text"] = target_text
-        st.session_state["focus_scope_label"] = "Whole Document" if focus_mode == "Whole Document" else f"Paragraph {block_idx}"
-
-        # AI Action Bar (Color coded, no redundant text)
-        st.markdown(
-            f'<div class="action-bar {mode_class}" style="display: flex; align-items: center; gap: 8px;">'
-            f'<div class="action-bar-title" style="margin-bottom: 0;">AI Reasoning Actions</div>'
-            f'<span title="{combined_help_info}" style="cursor: pointer; background-color: #38bdf8; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; line-height: 1;">i</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-        c1, c2, c3 = st.columns([1, 1, 1], gap="small")
-        
-        with c1:
-            if st.button("🌱 Expand", use_container_width=True, help="Explore alternative reasoning paths and divergent perspectives based on your focus."):
-                st.session_state.pending_action = {
-                    "action": ActionType.DIVERGE, 
-                    "anchor_id": tree["current"],
-                    "f_mode": focus_mode,
-                    "t_text": target_text,
-                    "b_idx": block_idx,
-                    "paras": paragraphs_only
-                }
-                st.session_state.is_thinking = True
-                st.rerun()
-        with c2:
-            if st.button("⚖️ Critique", use_container_width=True, help="Analyze your reasoning for potential biases, gaps, or logical fallacies."):
-                st.session_state.pending_action = {
-                    "action": ActionType.CRITIQUE, 
-                    "anchor_id": tree["current"],
-                    "f_mode": focus_mode,
-                    "t_text": target_text,
-                    "b_idx": block_idx,
-                    "paras": paragraphs_only
-                }
-                st.session_state.is_thinking = True
-                st.rerun()
-        with c3:
-            if st.button("✨ Refine", use_container_width=True, help="Generate granular writing suggestions and draft improvements for the selected focus."):
-                st.session_state.pending_action = {
-                    "action": ActionType.REFINE, 
-                    "anchor_id": tree["current"],
-                    "f_mode": focus_mode,
-                    "t_text": target_text,
-                    "b_idx": block_idx,
-                    "paras": paragraphs_only
-                }
-                st.session_state.is_thinking = True
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- (3) AI Context & Structure "Folder" ---
-        # --- (3) AI Context & Structure "Folder" ---
-        with st.expander("🧠 AI Context & Structure", expanded=False):
-            tab1, tab2, tab3 = st.tabs(["🎯 Focus Range", "📑 Segmentation", "👁️ Focus Preview"])
-            
-            with tab1:
-                # Sub-section: Focus Range
-                st.markdown(
-                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
-                    f'<b>AI Focus Range</b> '
-                    f'<span title="Select whether the AI should analyze your Whole Document or focus on a Specific Paragraph for more granular feedback." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-                
-                # Use globally initialized segments
-                current_paras = st.session_state.get("structural_segments", [])
-
-                focus_choice = st.radio(
-                    "Select AI Focus Range:",
-                    ["Whole Document", "Specific Paragraph"],
-                    key="promo_focus_mode_radio",
-                    horizontal=True,
-                    label_visibility="collapsed"
-                )
-
-                if focus_choice == "Specific Paragraph":
-                    if current_paras:
-                        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-                        options = []
-                        for i, p in enumerate(current_paras):
-                            # Clean label for radio
-                            p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                            preview = (p_clean[:60] + "...") if len(p_clean) > 60 else p_clean
-                            
-                            # All segments in this list are now considered paragraphs
-                            label_idx = f"{i+1}"
-                            options.append(f"[{label_idx}] {preview}")
-                        
-                        saved_idx = st.session_state.get("promo_block_selector_idx", 0)
-                        # Bounds check
-                        safe_idx = max(0, min(saved_idx, len(options)-1))
-                            
-                        st.radio(
-                            "Select Target Paragraph:",
-                            options=options,
-                            index=safe_idx,
-                            key="promo_block_radio_selector",
-                            label_visibility="collapsed"
-                        )
-                    else:
-                        st.warning("No paragraphs detected. Type some text first.")
-
-            with tab2:
-                # Sub-section: Paragraph Segmentation
-                st.markdown(
-                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
-                    f'<b>Paragraph Segmentation</b> '
-                    f'<span title="View the document units identified by Lantern. AI actions (like Critique or Refine) use these structural markers to provide targeted improvements. Use Refresh if you make major structural changes." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-                paras = st.session_state.get("structural_segments", [])
-                if paras:
-                    st.markdown('<div style="font-size: 0.8rem; color: #64748b; margin-bottom: 8px;">Units identified in your draft:</div>', unsafe_allow_html=True)
-                    with st.container(height=250, border=False):
-                        for i, p in enumerate(paras):
-                            p_clean = re.sub(r"^(?:\[P\s*\d+\]|Block\s*\d+:?|\d+[\.)]|[*•\-])\s*", "", p, flags=re.IGNORECASE).strip()
-                            st.markdown(
-                                f'<div style="margin-bottom: 8px; padding: 6px; background: #f8fafc; border-radius: 4px; border-left: 2px solid #38bdf8; font-size: 0.8rem;">'
-                                f'<b>[P{i+1}]</b> {p_clean[:120]}...</div>',
-                                unsafe_allow_html=True
-                            )
-                
-                has_content = bool(st.session_state.get("editor_html", "").strip())
-                if has_content:
-                    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-                    if st.button("🔄 Refresh Structure", use_container_width=True, help="Update the segments based on current changes (excluding title)."):
-                        st.session_state.pending_action = {"action": ActionType.SEGMENT}
-                        st.session_state.is_thinking = True
-                        st.rerun()
-
-            with tab3:
-                # Sub-section: AI Focus Preview
-                st.markdown(
-                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
-                    f'<b>AI Focus Preview</b> '
-                    f'<span title="This peek shows the exact text and markers Lantern will send to the AI. Use this to verify that the selection is correct before running an action." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-                st.caption("Exact text Lantern will analyze:")
-                st.markdown(
-                    f'<div style="font-size: 0.85rem; color: #475569; background-color: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; height: 180px; overflow-y: auto; white-space: pre-wrap;">'
-                    f'{st.session_state.get("focused_text", "No text detected.")}'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-
-        if st.session_state.get("ai_info_message"):
-            c_msg, c_msg_del = st.columns([0.9, 0.1])
-            c_msg.info(st.session_state["ai_info_message"])
-            if c_msg_del.button("✖", key="clear_ai_info", help="Clear this message"):
-                st.session_state["ai_info_message"] = None
-                st.rerun()
-
-        st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
 
 
