@@ -1276,10 +1276,14 @@ def main():
                                         st.session_state.dismissed_suggestions.add(sibling_id)
 
                                 # --- Navigation & State Sync ---
+                                if cid in st.session_state.tree.get("nodes", {}):
                                     navigate_to_node(st.session_state.tree, cid)
                                     # Use the nearest HTML (which fallback to current_node if already set above)
                                     final_html = get_nearest_html(st.session_state.tree, cid)
                                     st.session_state["editor_html"] = final_html
+                                    
+                                    from tree import save_tree
+                                    save_tree(st.session_state.tree)
                                     
                                     # Rule 8 Exception: Navigation performance override
                                     st.rerun()
