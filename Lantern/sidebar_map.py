@@ -205,7 +205,7 @@ def render_sidebar_map(tree, show_header: bool = True):
                         "text": meta.get("explanation", target_node.get("summary", "")), 
                         "type": "idea",
                         "scope": meta.get("scope", "Whole Document"),
-                        "source_context": meta.get("source_context", "")
+                        "source_context": "" # OPTIMIZATION: Do not save heavy context
                     }
                     if "pinned_items" in tree:
                         if not any(isinstance(i, dict) and i.get("id") == new_id for i in tree["pinned_items"]):

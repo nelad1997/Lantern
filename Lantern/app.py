@@ -1074,11 +1074,6 @@ def main():
                 with st.expander(f"📌 {title or 'Pinned Insight'} ({scope})"):
                     st.markdown(text)
                     # Filter out "undefined" or null contexts
-                    if source_context and source_context.strip().lower() != "undefined":
-                        with st.expander("🔍 Analyzed Context", expanded=False):
-                            st.caption("Lantern analyzed this specific text for this insight:")
-                            st.markdown(f'<div style="font-size: 0.8rem; color: #64748b; background-color: #f8fafc; padding: 10px; border-radius: 4px; border-left: 3px solid #cbd5e1; max-height: 200px; overflow-y: auto;">{source_context}</div>', unsafe_allow_html=True)
-                    
                     if st.button("❌ Unpin", key=f"unpin_{i}", use_container_width=True):
                         st.session_state.tree["pinned_items"].pop(i)
                         st.rerun()
@@ -1269,7 +1264,7 @@ def main():
                                     "text": explanation, 
                                     "type": "idea",
                                     "scope": scope,
-                                    "source_context": meta.get("source_context", "")
+                                    "source_context": "" # OPTIMIZATION: Do not save heavy context
                                 }
                                 st.session_state.tree["pinned_items"].append(pin_obj)
 
@@ -1310,7 +1305,7 @@ def main():
                                      "text": explanation, 
                                      "type": "idea",
                                      "scope": scope,
-                                     "source_context": meta.get("source_context", "")
+                                     "source_context": "" # OPTIMIZATION: Do not save heavy context
                                  })
                                  save_tree(st.session_state.tree)
                                  st.rerun()

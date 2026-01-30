@@ -505,7 +505,7 @@ def _handle_action(tree: Dict, event_context: Dict[str, Any], system_rules: str)
                 "explanation": explanation,
                 "idea_text": option,
                 "scope": scope_label,
-                "source_context": event_context.get("user_text", "")
+                "source_context": "" # OPTIMIZATION: Do not save heavy context
             }
             # הוספה לעץ
             add_child(tree, anchor_id, explanation, metadata=meta)
