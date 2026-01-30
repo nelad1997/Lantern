@@ -771,8 +771,8 @@ def main():
                     
                     save_tree(st.session_state.tree)
 
-                # Prepend CSS to the value so it renders inside the iframe
-                quill_value = EDITOR_CSS + st.session_state["editor_html"]
+                # Use raw editor html directly (Styles are handled in the global CSS block)
+                quill_value = st.session_state["editor_html"]
                 
                 html_content = st_quill(
                     value=quill_value,
@@ -780,19 +780,23 @@ def main():
                     html=True,
                     key=f"quill_editor_{st.session_state.get('editor_version', 0)}",
                 )
-
                 if html_content is not None:
-                    # Robust Clean: Remove any <style> blocks
+                    # Robust Clean: Remove any <style> blocks (though we removed prefixing, Quill might add its own)
                     clean_html = re.sub(r"<style.*?>.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
-                    
-                    # Sync to state
                     current_html_state = st.session_state.get("editor_html", "")
-                    
+
+                    # Version-locked Sync Guard:
+                    # If we just applied a refinement, we ignore the FIRST update from the editor
+                    # because Streamlit components often return stale content on the first rerun.
                     if st.session_state.get("just_applied_refine"):
                         st.session_state.just_applied_refine = False
+                        add_debug_log("✍️ IGNORED stale editor update after Refine Apply.")
                     elif clean_html.strip() != current_html_state.strip():
-                        # TEXT CHANGE DETECTED
+                        # TEXT CHANGE DETECTED (User most likely typed)
                         st.session_state["editor_html"] = clean_html
+                        # Reset the tree-cached HTML so next nav/action picks up latest
+                        if current_node.get("id") in st.session_state.tree["nodes"]:
+                             st.session_state.tree["nodes"][current_node["id"]].setdefault("metadata", {})["html"] = clean_html
                         
                         # Rule 6: No implicit saving to tree metadata. 
                         # Tree is updated ONLY on explicit navigation / action.
@@ -939,12 +943,15 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error("⚠️ Automated placement failed due to text/formatting mismatch.")
-                                    with st.expander("🔍 Show Debug Info (Why it failed)"):
-                                        st.write("**What the AI tried to replace:**")
+                                    # LOG exactly what happened to debug logs
+                                    add_debug_log(f"❌ REFINE APPLY FAILED: Could not match AI original in current HTML.\nTarget: {proposal['original'][:100]}...\nHTML Len: {len(current_html)}")
+                                    
+                                    with st.expander("🔍 Show Debug Info & Manual Fix"):
+                                        st.write("**What Lantern couldn't find in your draft:**")
                                         st.code(proposal['original'])
-                                        st.write("**What the AI proposed:**")
+                                        st.write("**The AI's suggested replacement:**")
                                         st.code(proposal['proposed'])
-                                        st.info("The system couldn't find a matching segment in your draft precisely enough. You can copy the code above and paste it manually.")
+                                        st.info("The system couldn't find this exact segment. You can copy the proposed text above and paste it manually into your draft.")
                             
                             if c_dis.button("✖ Skip", key=f"dis_refine_{proposal['id']}", use_container_width=True):
                                 proposal["status"] = "dismissed"
