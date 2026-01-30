@@ -35,7 +35,7 @@ if current_dir not in sys.path:
 
 # --- Imports ---
 from definitions import UserEventType, ActionType
-from tree import init_tree, get_current_node, navigate_to_node, get_node_short_label, get_nearest_html, load_tree
+from tree import init_tree, get_current_node, navigate_to_node, get_node_short_label, get_nearest_html, load_tree, save_tree
 from controller import handle_event, generate_diff_html, apply_fuzzy_replacement
 from sidebar_map import render_sidebar_map
 from dotenv import load_dotenv
@@ -1283,7 +1283,6 @@ def main():
                                     final_html = get_nearest_html(st.session_state.tree, cid)
                                     st.session_state["editor_html"] = final_html
                                     
-                                    from tree import save_tree
                                     save_tree(st.session_state.tree)
                                     
                                     # Rule 8 Exception: Navigation performance override
