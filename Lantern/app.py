@@ -604,12 +604,26 @@ def main():
         with st.expander("🧠 AI Context & Structure", expanded=False):
             tab1, tab2, tab3 = st.tabs(["🎯 Focus Range", "📑 Segmentation", "👁️ Focus Preview"])
             with tab1:
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>AI Focus Range</b> '
+                    f'<span title="Select whether the AI should analyze your Whole Document or focus on a Specific Paragraph for more granular feedback." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
                 # Use the synced focus_choice for the radio's initial value
-                st.radio("Select AI Focus:", ["Whole Document", "Specific Paragraph"], key="promo_focus_mode_radio", horizontal=True)
+                st.radio("Select AI Focus:", ["Whole Document", "Specific Paragraph"], key="promo_focus_mode_radio", horizontal=True, label_visibility="collapsed")
                 if focus_choice == "Specific Paragraph" and paragraphs_only:
                     options = [f"[{i+1}] {re.sub('<[^<]+?>', '', p)[:60]}..." for i, p in enumerate(paragraphs_only)]
                     st.radio("Select Paragraph:", options=options, index=max(0, min(st.session_state.get("promo_block_selector_idx", 0), len(options)-1)), key="promo_block_radio_selector")
             with tab2:
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>Paragraph Segmentation</b> '
+                    f'<span title="View the document units identified by Lantern. AI actions (like Critique or Refine) use these structural markers to provide targeted improvements. Use Refresh if you make major structural changes." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
                 for i, p in enumerate(paragraphs_only):
                     st.markdown(f"**[P{i+1}]** {re.sub('<[^<]+?>', '', p)[:120]}...")
                 if st.button("🔄 Refresh Structure", use_container_width=True):
@@ -617,7 +631,14 @@ def main():
                     st.session_state.is_thinking = True
                     st.rerun()
             with tab3:
-                st.text_area("Preview:", value=target_text, height=200, disabled=True)
+                st.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 5px;">'
+                    f'<b>AI Focus Preview</b> '
+                    f'<span title="This peek shows the exact text and markers Lantern will send to the AI. Use this to verify that the selection is correct before running an action." style="cursor: help; background-color: #38bdf8; color: white; border-radius: 4px; padding: 1px 8px; font-size: 0.7em; font-weight: bold;">i</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                st.text_area("Exact text Lantern will analyze:", value=target_text, height=200, disabled=True, label_visibility="collapsed")
 
         st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
