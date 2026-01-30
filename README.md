@@ -49,7 +49,7 @@ Create a `.env` file in the `Lantern/` folder and paste your Gemini API Key:
 ```env
 GEMINI_API_KEY=your_actual_api_key_here
 ```
-*You can get a free API key at [Google AI Studio](https://aistudio.google.com/).*
+*You can get a free API key at [Google AI Studio](https://aistudio.google.com/) (requires a Google Account).*
 
 ### 5. Run the App
 ```bash
