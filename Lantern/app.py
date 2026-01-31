@@ -418,6 +418,19 @@ def get_document_structure(current_html):
 # Main App
 # -------------------------------------------------
 def main():
+    # 0. EARLY SYNC: Pull from widget state if available (fixes "first input not recognized" bug)
+    quill_key = f"quill_editor_{st.session_state.get('editor_version', 0)}"
+    if quill_key in st.session_state:
+        widget_val = st.session_state[quill_key]
+        if widget_val is not None:
+            # Remove potential <style> blocks injected by browser/extensions
+            clean_widget_val = re.sub(r"<style.*?>.*?</style>", "", widget_val, flags=re.DOTALL | re.IGNORECASE)
+            if clean_widget_val != st.session_state.get("editor_html"):
+                st.session_state["editor_html"] = clean_widget_val
+                # Trigger immediate structural refresh
+                _, paras = get_document_structure(clean_widget_val)
+                st.session_state.structural_segments = paras
+
     if "pending_action" not in st.session_state:
         st.session_state.pending_action = None
     if "is_thinking" not in st.session_state:
@@ -1181,10 +1194,12 @@ def main():
                                     "source_context": ""
                                 })
                                 save_tree(st.session_state.tree)
+                                st.rerun()
                         with c_pru:
                             if st.button("🗑", key=f"pr_{cid}", help="Dismiss this suggestion from view", use_container_width=True):
                                 st.session_state.dismissed_suggestions.add(cid)
                                 save_tree(st.session_state.tree)
+                                st.rerun()
 
 
     # ==========================================
