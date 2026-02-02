@@ -91,13 +91,30 @@ def render_sidebar_map(tree, show_header: bool = True):
     graph = None
 
     with st.sidebar:
-        # Resolve Graphviz path (Windows specific)
-        graphviz_path = r"C:\Program Files (x86)\Graphviz\bin"
-        if not os.path.exists(graphviz_path):
-            graphviz_path = r"C:\Program Files\Graphviz\bin"
+        # Resolve Graphviz path
+        # 1. Check if 'dot' is already in PATH (common on Linux/Streamlit Cloud)
+        import shutil
+        dot_path = shutil.which("dot")
         
-        if os.path.exists(graphviz_path) and graphviz_path not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = graphviz_path + os.pathsep + os.environ.get("PATH", "")
+        if not dot_path:
+            # 2. Fallback to common Windows locations
+            windows_paths = [
+                r"C:\Program Files\Graphviz\bin",
+                r"C:\Program Files (x86)\Graphviz\bin"
+            ]
+            for p in windows_paths:
+                if os.path.exists(p):
+                    if p not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+                    dot_path = shutil.which("dot")
+                    if dot_path:
+                        break
+
+        # 3. Diagnostic help if still missing
+        if not dot_path:
+            st.error("⚠️ Graphviz binaries not found. Please ensure Graphviz is installed and 'dot' is in your PATH.")
+            if os.name != 'nt':
+                 st.info("On Streamlit Cloud, ensure 'packages.txt' exists in the repository root with 'graphviz' inside.")
 
         if show_header:
             st.subheader("🗺️ Thought Tree")
